@@ -52,13 +52,13 @@ const DEFAULT_THEME: Theme = {
 };
 
 const DARK_THEME: Theme = {
-  bg: '#151c1c',
-  surface: '#202929',
-  ink: '#e5eeeb',
-  muted: '#9eaaa7',
-  accent: '#43c4dc',
-  secondary: '#d65aa9',
-  particle: '#78dce5',
+  bg: '#0c0d18',
+  surface: '#151728',
+  ink: '#f0efff',
+  muted: '#a2a1bc',
+  accent: '#49f0d0',
+  secondary: '#ff5fc8',
+  particle: '#d5ff69',
 };
 
 const PITCH_CLASSES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
@@ -103,8 +103,51 @@ interface NoteEvent {
   strength: number;
 }
 
+interface YouTubePlayer {
+  destroy(): void;
+  getAvailablePlaybackRates(): number[];
+  getCurrentTime(): number;
+  getDuration(): number;
+  getPlayerState(): number;
+  getVideoData(): { title: string; isLiveContent?: boolean };
+  isMuted(): boolean;
+  mute(): void;
+  pauseVideo(): void;
+  playVideo(): void;
+  seekTo(seconds: number, allowSeekAhead: boolean): void;
+  setPlaybackRate(rate: number): void;
+  setVolume(volume: number): void;
+  unMute(): void;
+}
+
+interface YouTubeNamespace {
+  Player: new (
+    target: HTMLElement,
+    options: {
+      videoId: string;
+      width: string;
+      height: string;
+      playerVars: Record<string, number | string>;
+      events: {
+        onReady: (event: { target: YouTubePlayer }) => void;
+        onStateChange: (event: { data: number }) => void;
+        onError: (event: { data: number }) => void;
+      };
+    },
+  ) => YouTubePlayer;
+  PlayerState: { ENDED: number; PLAYING: number; PAUSED: number };
+}
+
+declare global {
+  interface Window {
+    YT?: YouTubeNamespace;
+    onYouTubeIframeAPIReady?: () => void;
+  }
+}
+
 type VisualCardId =
   | 'specimen'
+  | 'prism'
   | 'roll'
   | 'fountain'
   | 'orbit'
@@ -118,8 +161,10 @@ type VisualCardId =
 interface VisualCardOptions {
   enabled: boolean;
   intensity: number;
+  driver: AudioDriver;
 }
 
+type AudioDriver = 'mix' | 'sub' | 'lows' | 'mids' | 'highMids' | 'air' | 'beat' | 'stereo' | 'notes';
 type VisualCardColorKey = 'ink' | 'accent' | 'secondary' | 'particle';
 type VisualCardColors = Partial<Pick<Theme, VisualCardColorKey>>;
 
@@ -131,8 +176,74 @@ const VISUAL_COLOR_FIELDS: { key: VisualCardColorKey; label: string }[] = [
 ];
 
 const VISUAL_CARD_IDS: VisualCardId[] = [
-  'specimen', 'roll', 'fountain', 'orbit', 'glyph',
+  'specimen', 'prism', 'roll', 'fountain', 'orbit', 'glyph',
   'waveform', 'scope', 'spectrum', 'spectrogram', 'network',
+];
+const AUDIO_DRIVERS: { value: AudioDriver; label: string }[] = [
+  { value: 'mix', label: 'Full mix' },
+  { value: 'sub', label: 'Sub (20-60 Hz)' },
+  { value: 'lows', label: 'Bass (60-250 Hz)' },
+  { value: 'mids', label: 'Mids (250 Hz-2 kHz)' },
+  { value: 'highMids', label: 'High mids (2-6 kHz)' },
+  { value: 'air', label: 'Air (6-20 kHz)' },
+  { value: 'beat', label: 'Beat transients' },
+  { value: 'stereo', label: 'Stereo width' },
+  { value: 'notes', label: 'Detected notes' },
+];
+const FRAME_INTERVAL_MS = 1000 / 45;
+const PRISM_FRAME_INTERVAL_MS = 1000 / 30;
+const PRISM_DETAIL_THRESHOLD = 6.8;
+type PrismVertex = readonly [number, number, number];
+type PrismFace = readonly [number, number, number];
+type PrismEdge = readonly [number, number];
+
+interface PrismGeometry {
+  vertices: readonly PrismVertex[];
+  faces: readonly PrismFace[];
+  edges: readonly PrismEdge[];
+}
+
+function createPrismGeometry(vertices: readonly PrismVertex[], faces: readonly PrismFace[]): PrismGeometry {
+  const edgeKeys = new Set<string>();
+  const edges: PrismEdge[] = [];
+  for (const [a, b, c] of faces) {
+    for (const [start, end] of [[a, b], [b, c], [c, a]] as const) {
+      const low = Math.min(start, end);
+      const high = Math.max(start, end);
+      const key = `${low}:${high}`;
+      if (edgeKeys.has(key)) continue;
+      edgeKeys.add(key);
+      edges.push([low, high]);
+    }
+  }
+  return { vertices, faces, edges };
+}
+
+const PRISM_GEOMETRIES: readonly PrismGeometry[] = [
+  createPrismGeometry(
+    [[0, -1, 0], [0, 0.35, 0.95], [-0.9, 0.35, -0.48], [0.9, 0.35, -0.48]],
+    [[0, 1, 2], [0, 3, 1], [0, 2, 3], [1, 3, 2]],
+  ),
+  createPrismGeometry(
+    [[0, -1, 0], [0, 1, 0], [-1, 0, 0], [1, 0, 0], [0, 0, -1], [0, 0, 1]],
+    [[0, 2, 4], [0, 4, 3], [0, 3, 5], [0, 5, 2], [1, 4, 2], [1, 3, 4], [1, 5, 3], [1, 2, 5]],
+  ),
+  createPrismGeometry(
+    [
+      [-0.65, -0.65, -0.65], [0.65, -0.65, -0.65], [0.65, 0.65, -0.65], [-0.65, 0.65, -0.65],
+      [-0.65, -0.65, 0.65], [0.65, -0.65, 0.65], [0.65, 0.65, 0.65], [-0.65, 0.65, 0.65],
+    ],
+    [
+      [0, 1, 2], [0, 2, 3], [4, 6, 5], [4, 7, 6],
+      [0, 4, 5], [0, 5, 1], [1, 5, 6], [1, 6, 2],
+      [2, 6, 7], [2, 7, 3], [3, 7, 4], [3, 4, 0],
+    ],
+  ),
+];
+const PRISM_SILHOUETTES: readonly (readonly PrismVertex[])[] = [
+  [[-0.72, -0.42, 0], [0, -1, 0], [0.82, -0.34, 0], [0.08, 0.9, 0]],
+  [[0, -1, 0], [0.72, 0, 0], [0, 1, 0], [-0.72, 0, 0]],
+  [[-0.72, -0.72, 0], [0.72, -0.72, 0], [0.72, 0.72, 0], [-0.72, 0.72, 0]],
 ];
 
 @Component({
@@ -145,6 +256,8 @@ const VISUAL_CARD_IDS: VisualCardId[] = [
 export class AppComponent implements AfterViewInit, OnDestroy {
   @ViewChildren('vizCanvas') canvases!: QueryList<ElementRef<HTMLCanvasElement>>;
   @ViewChild('audioPlayer') private audioElement!: ElementRef<HTMLAudioElement>;
+  @ViewChild('studio') private studioElement!: ElementRef<HTMLElement>;
+  @ViewChild('youtubePlayerHost') private youtubePlayerHost?: ElementRef<HTMLDivElement>;
 
   readonly colorFields: { key: keyof Theme; label: string }[] = [
     { key: 'bg', label: 'Background base' },
@@ -158,10 +271,10 @@ export class AppComponent implements AfterViewInit, OnDestroy {
   readonly bands: Bands = { sub: 0, lows: 0, mids: 0, highMids: 0, air: 0 };
   private activeVisualCard: VisualCardId | null = null;
   readonly cardColors: Record<VisualCardId, VisualCardColors> = {
-    specimen: {}, roll: {}, fountain: {}, orbit: {}, glyph: {},
+    specimen: {}, prism: {}, roll: {}, fountain: {}, orbit: {}, glyph: {},
     waveform: {}, scope: {}, spectrum: {}, spectrogram: {}, network: {},
   };
-  readonly theme = new Proxy({ ...DEFAULT_THEME }, {
+  readonly theme = new Proxy({ ...DARK_THEME }, {
     get: (colors, key: string | symbol) => {
       if (typeof key !== 'string') return Reflect.get(colors, key);
       const cardId = this.activeVisualCard;
@@ -177,17 +290,19 @@ export class AppComponent implements AfterViewInit, OnDestroy {
   readonly leftTimeData = new Uint8Array(8192);
   readonly rightTimeData = new Uint8Array(8192);
   readonly visualColorFields = VISUAL_COLOR_FIELDS;
+  readonly audioDrivers = AUDIO_DRIVERS;
   readonly cardOptions: Record<VisualCardId, VisualCardOptions> = {
-    specimen: { enabled: true, intensity: 1 },
-    roll: { enabled: true, intensity: 1 },
-    fountain: { enabled: true, intensity: 1 },
-    orbit: { enabled: true, intensity: 1 },
-    glyph: { enabled: true, intensity: 1 },
-    waveform: { enabled: true, intensity: 1 },
-    scope: { enabled: true, intensity: 1 },
-    spectrum: { enabled: true, intensity: 1 },
-    spectrogram: { enabled: true, intensity: 1 },
-    network: { enabled: true, intensity: 1 },
+    specimen: { enabled: true, intensity: 1.35, driver: 'sub' },
+    prism: { enabled: true, intensity: 1.5, driver: 'sub' },
+    roll: { enabled: true, intensity: 1.35, driver: 'mids' },
+    fountain: { enabled: true, intensity: 1.35, driver: 'highMids' },
+    orbit: { enabled: true, intensity: 1.35, driver: 'beat' },
+    glyph: { enabled: true, intensity: 1.35, driver: 'air' },
+    waveform: { enabled: true, intensity: 1.35, driver: 'mix' },
+    scope: { enabled: true, intensity: 1.35, driver: 'stereo' },
+    spectrum: { enabled: true, intensity: 1.35, driver: 'mix' },
+    spectrogram: { enabled: true, intensity: 1.35, driver: 'mix' },
+    network: { enabled: true, intensity: 1.35, driver: 'notes' },
   };
 
   trackId = '--';
@@ -197,9 +312,19 @@ export class AppComponent implements AfterViewInit, OnDestroy {
   loudness = '--';
   duration = 0;
   currentTime = 0;
+  isLiveStream = false;
   isPlaying = false;
+  youtubeUrl = '';
+  youtubeVideoId = '';
+  youtubeReady = false;
+  youtubeLoading = false;
+  youtubeInputOpen = false;
+  volume = 80;
+  muted = false;
+  playbackRate = 1;
+  chaosMode = false;
   themeOpen = false;
-  darkMode = false;
+  darkMode = true;
   particleTrailsEnabled = true;
   statusMessage = '';
   errorMessage = '';
@@ -217,12 +342,49 @@ export class AppComponent implements AfterViewInit, OnDestroy {
   stepNumber: number | null = null;
   bassNote = '--';
   private audioUrl = '';
+  private youtubePlayer?: YouTubePlayer;
+  private youtubeApiPromise?: Promise<YouTubeNamespace>;
+  private youtubeRequestId = 0;
+  private youtubePositionTimer = 0;
   private audioContext?: AudioContext;
   private analyser?: AnalyserNode;
   private leftAnalyser?: AnalyserNode;
   private rightAnalyser?: AnalyserNode;
   private gainNode?: GainNode;
   private animationFrame = 0;
+  private lastFrameTime = 0;
+  private lastPrismRenderTime = 0;
+  private lastChaosStyleUpdate = 0;
+  private chaosEnergy = 0;
+  private reducedMotionQuery?: MediaQueryList;
+  private beatPulse = 0;
+  private prismBeatPulse = 0;
+  private prismWaveAge = 1;
+  private prismBassEnvelope = 0;
+  private prismBassAverage = 0;
+  private lastPrismTransient = 0;
+  private prismBassInitialized = false;
+  private readonly prismEdgeBuffer = new Float32Array(13_000);
+  private readonly prismObjectX = new Float32Array(501);
+  private readonly prismObjectY = new Float32Array(501);
+  private readonly prismObjectSize = new Float32Array(501);
+  private readonly prismObjectAngle = new Float32Array(501);
+  private readonly prismObjectSeed = new Float32Array(501);
+  private readonly prismObjectWave = new Float32Array(501);
+  private readonly prismCollisionX = new Float32Array(501);
+  private readonly prismCollisionY = new Float32Array(501);
+  private readonly prismCollisionTargetX = new Float32Array(501);
+  private readonly prismCollisionTargetY = new Float32Array(501);
+  private readonly prismCellHeads = new Int16Array(256);
+  private readonly prismCellX = new Uint8Array(167);
+  private readonly prismCellY = new Uint8Array(167);
+  private readonly prismProjectedX = new Float32Array(8);
+  private readonly prismProjectedY = new Float32Array(8);
+  private readonly prismCellNext = new Int16Array(167);
+  private readonly cardDrive: Record<VisualCardId, number> = {
+    specimen: 0, prism: 0, roll: 0, fountain: 0, orbit: 0, glyph: 0,
+    waveform: 0, scope: 0, spectrum: 0, spectrogram: 0, network: 0,
+  };
   private resizeObserver?: ResizeObserver;
   private visibilityObserver?: IntersectionObserver;
   private visibleCanvases = new WeakSet<HTMLCanvasElement>();
@@ -271,11 +433,28 @@ export class AppComponent implements AfterViewInit, OnDestroy {
   }
 
   get hasAudio(): boolean {
-    return Boolean(this.audioUrl);
+    return Boolean(this.audioUrl || this.youtubeVideoId);
+  }
+
+  get isYouTubeSource(): boolean {
+    return Boolean(this.youtubeVideoId);
+  }
+
+  get canSeek(): boolean {
+    return this.hasAudio && !this.isLiveStream && Number.isFinite(this.duration) && this.duration > 0;
+  }
+
+  get durationLabel(): string {
+    if (this.isLiveStream) return 'LIVE';
+    return this.canSeek ? this.formatTime(this.duration) : '--:--';
   }
 
   get revolution(): string {
     return this.tempo ? (240 / this.tempo).toFixed(2) : '--';
+  }
+
+  get prismFieldEnergy(): number {
+    return this.cardDrive.prism * 100;
   }
 
   get binaryStatus(): string {
@@ -289,7 +468,7 @@ export class AppComponent implements AfterViewInit, OnDestroy {
 
   getCardOptions(id: string): VisualCardOptions {
     const cardId = VISUAL_CARD_IDS.find((candidate) => candidate === id);
-    return cardId ? this.cardOptions[cardId] : { enabled: false, intensity: 1 };
+    return cardId ? this.cardOptions[cardId] : { enabled: false, intensity: 1, driver: 'mix' };
   }
 
   toggleCardMenu(id: string, event: Event): void {
@@ -317,7 +496,17 @@ export class AppComponent implements AfterViewInit, OnDestroy {
     const cardId = VISUAL_CARD_IDS.find((candidate) => candidate === id);
     if (!cardId) return;
     this.cardOptions[cardId].intensity = Number((event.target as HTMLInputElement).value);
-    this.applyCardIntensity(cardId);
+    this.invalidateCardFrame(cardId);
+    this.saveCardOptions();
+  }
+
+  setCardDriver(id: string, event: Event): void {
+    const cardId = VISUAL_CARD_IDS.find((candidate) => candidate === id);
+    const driver = AUDIO_DRIVERS.find(({ value }) => value === (event.target as HTMLSelectElement).value)?.value;
+    if (!cardId || !driver) return;
+    this.cardOptions[cardId].driver = driver;
+    this.cardDrive[cardId] = 0;
+    this.invalidateCardFrame(cardId);
     this.saveCardOptions();
   }
 
@@ -379,15 +568,16 @@ export class AppComponent implements AfterViewInit, OnDestroy {
     localStorage.setItem('audiovis-card-options', JSON.stringify(this.cardOptions));
   }
 
-  private applyCardIntensity(id: VisualCardId): void {
+  private invalidateCardFrame(id: VisualCardId): void {
     this.canvases?.forEach(({ nativeElement }) => {
       if (nativeElement.dataset['visual'] === id) {
-        nativeElement.style.opacity = String(this.cardOptions[id].intensity);
+        this.renderedStaticFrames.delete(nativeElement);
       }
     });
   }
 
   ngAfterViewInit(): void {
+    this.reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
     this.resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) this.resizeCanvas(entry.target as HTMLCanvasElement);
     });
@@ -401,7 +591,6 @@ export class AppComponent implements AfterViewInit, OnDestroy {
     this.canvases.forEach(({ nativeElement }) => this.resizeObserver?.observe(nativeElement));
     this.canvases.forEach(({ nativeElement }) => this.visibilityObserver?.observe(nativeElement));
     this.resizeCanvases();
-    VISUAL_CARD_IDS.forEach((id) => this.applyCardIntensity(id));
     this.zone.runOutsideAngular(() => {
       this.animationFrame = requestAnimationFrame(this.drawLoop);
     });
@@ -411,6 +600,7 @@ export class AppComponent implements AfterViewInit, OnDestroy {
     cancelAnimationFrame(this.animationFrame);
     this.resizeObserver?.disconnect();
     this.visibilityObserver?.disconnect();
+    this.destroyYouTubePlayer();
     if (this.audioUrl.startsWith('blob:')) URL.revokeObjectURL(this.audioUrl);
     void this.audioContext?.close();
   }
@@ -430,6 +620,11 @@ export class AppComponent implements AfterViewInit, OnDestroy {
     this.errorMessage = '';
     this.statusMessage = 'Loading audio and preparing the live analyzer…';
     this.stopPlayback();
+    this.destroyYouTubePlayer();
+    this.youtubeVideoId = '';
+    this.youtubeReady = false;
+    this.youtubeLoading = false;
+    this.isLiveStream = false;
     if (this.audioUrl.startsWith('blob:')) URL.revokeObjectURL(this.audioUrl);
     this.audioUrl = URL.createObjectURL(file);
     this.trackName = file.name;
@@ -439,6 +634,9 @@ export class AppComponent implements AfterViewInit, OnDestroy {
     this.resetAnalysis();
     this.statusMessage = 'Local audio ready. Press play to start the analysis.';
     const player = this.audioElement.nativeElement;
+    player.volume = this.volume / 100;
+    player.muted = this.muted;
+    player.playbackRate = this.playbackRate;
     player.src = this.audioUrl;
     player.load();
     this.audioApi.upload(file).subscribe({
@@ -450,33 +648,360 @@ export class AppComponent implements AfterViewInit, OnDestroy {
   }
 
   async togglePlayback(): Promise<void> {
+    if (this.isYouTubeSource) {
+      if (!this.youtubeReady || !this.youtubePlayer) {
+        this.statusMessage = 'The YouTube player is still loading.';
+        return;
+      }
+      if (this.isPlaying) this.youtubePlayer.pauseVideo();
+      else this.youtubePlayer.playVideo();
+      return;
+    }
     const player = this.audioElement.nativeElement;
     if (!this.audioUrl) return;
     try {
       if (player.paused) {
-        await this.connectAudioGraph();
-        await this.audioContext?.resume();
-        await player.play();
-        this.statusMessage = '';
+        const audioContext = this.ensureAudioContext();
+        if (player.ended) player.currentTime = 0;
+        const resumePromise = audioContext.state !== 'running' && audioContext.state !== 'closed'
+          ? audioContext.resume().then(() => true, () => false)
+          : Promise.resolve(true);
+        const playPromise = player.play();
+        await playPromise;
+        this.errorMessage = '';
+        this.statusMessage = await resumePromise
+          ? ''
+          : 'Audio is playing, but live analysis could not start. Try playing again.';
       } else {
         player.pause();
       }
-    } catch {
-      this.errorMessage = 'Audio could not be played. Try selecting the file again.';
+    } catch (error) {
+      const errorName = error instanceof Error ? error.name : '';
+      this.errorMessage = errorName === 'NotAllowedError'
+        ? 'Playback was blocked by the browser. Tap play again to allow audio.'
+        : errorName === 'NotSupportedError'
+          ? 'This audio file could not be decoded. Try an MP3, WAV, or FLAC file.'
+          : 'Audio playback failed. Try selecting the file again.';
     }
   }
 
   seek(event: Event): void {
+    if (!this.canSeek) return;
     const value = Number((event.target as HTMLInputElement).value);
-    if (Number.isFinite(value)) this.audioElement.nativeElement.currentTime = value;
+    if (!Number.isFinite(value)) return;
+    if (this.isYouTubeSource) this.youtubePlayer?.seekTo(value, true);
+    else this.audioElement.nativeElement.currentTime = value;
+  }
+
+  skip(seconds: number): void {
+    const target = Math.max(0, this.currentTime + seconds);
+    const bounded = this.canSeek ? Math.min(target, this.duration) : target;
+    if (this.isYouTubeSource) this.youtubePlayer?.seekTo(bounded, true);
+    else if (this.audioUrl) this.audioElement.nativeElement.currentTime = bounded;
+  }
+
+  setVolume(event: Event): void {
+    this.volume = Number((event.target as HTMLInputElement).value);
+    this.muted = this.volume === 0;
+    if (this.isYouTubeSource) {
+      this.youtubePlayer?.setVolume(this.volume);
+      if (this.volume > 0) this.youtubePlayer?.unMute();
+    } else {
+      this.audioElement.nativeElement.volume = this.volume / 100;
+      this.audioElement.nativeElement.muted = this.muted;
+    }
+  }
+
+  toggleMute(): void {
+    this.muted = !this.muted;
+    if (this.isYouTubeSource) {
+      if (this.muted) this.youtubePlayer?.mute();
+      else {
+        if (this.volume === 0) this.volume = 80;
+        this.youtubePlayer?.setVolume(this.volume);
+        this.youtubePlayer?.unMute();
+      }
+      return;
+    }
+    const player = this.audioElement.nativeElement;
+    if (this.muted) {
+      if (player.volume > 0) this.volume = Math.round(player.volume * 100);
+      player.muted = true;
+    } else {
+      if (this.volume === 0) this.volume = 80;
+      player.volume = this.volume / 100;
+      player.muted = false;
+    }
+  }
+
+  toggleChaosMode(): void {
+    this.chaosMode = !this.chaosMode;
+    this.chaosEnergy = 0;
+    this.lastChaosStyleUpdate = 0;
+    if (!this.chaosMode) {
+      const style = this.studioElement.nativeElement.style;
+      style.removeProperty('--chaos-hue');
+      style.removeProperty('--chaos-energy');
+      style.removeProperty('--chaos-glow');
+      style.removeProperty('--chaos-overlay-opacity');
+      style.removeProperty('--chaos-drift');
+      style.removeProperty('--chaos-rotation');
+    }
+  }
+
+  setPlaybackRate(event: Event): void {
+    const rate = Number((event.target as HTMLSelectElement).value);
+    if (![0.5, 0.75, 1, 1.25, 1.5, 2].includes(rate)) return;
+    if (this.isYouTubeSource && this.youtubePlayer) {
+      const supported = this.youtubePlayer.getAvailablePlaybackRates();
+      if (!supported.includes(rate)) {
+        this.errorMessage = 'That playback speed is not available for this YouTube video.';
+        return;
+      }
+      this.youtubePlayer.setPlaybackRate(rate);
+    } else {
+      this.audioElement.nativeElement.playbackRate = rate;
+    }
+    this.playbackRate = rate;
+    this.errorMessage = '';
+  }
+
+  toggleYouTubeInput(): void {
+    this.youtubeInputOpen = !this.youtubeInputOpen;
+    if (!this.youtubeInputOpen) this.youtubeUrl = '';
+  }
+
+  onYouTubeUrlInput(event: Event): void {
+    this.youtubeUrl = (event.target as HTMLInputElement).value;
+  }
+
+  loadYouTubeLink(event: Event): void {
+    event.preventDefault();
+    const videoId = this.parseYouTubeVideoId(this.youtubeUrl);
+    if (!videoId) {
+      this.errorMessage = 'Enter a valid YouTube video, Shorts, or live link.';
+      return;
+    }
+
+    this.stopPlayback();
+    this.destroyYouTubePlayer();
+    const player = this.audioElement.nativeElement;
+    player.removeAttribute('src');
+    player.load();
+    if (this.audioUrl.startsWith('blob:')) URL.revokeObjectURL(this.audioUrl);
+    this.audioUrl = '';
+    this.youtubeVideoId = videoId;
+    this.youtubeReady = false;
+    this.youtubeLoading = true;
+    this.youtubeInputOpen = false;
+    this.isLiveStream = false;
+    this.trackId = 'YOUTUBE';
+    this.trackName = `YouTube video ${videoId}`;
+    this.duration = 0;
+    this.currentTime = 0;
+    this.resetAnalysis();
+    this.errorMessage = '';
+    this.statusMessage = 'Connecting to the official YouTube player. Audio analysis is available for uploaded files.';
+    const requestId = ++this.youtubeRequestId;
+    window.setTimeout(() => void this.initializeYouTubePlayer(videoId, requestId), 0);
+  }
+
+  onLocalPlay(): void {
+    if (!this.isYouTubeSource) this.isPlaying = true;
+  }
+
+  onLocalPause(): void {
+    if (!this.isYouTubeSource) this.isPlaying = false;
+  }
+
+  onLocalAudioError(): void {
+    const player = this.audioElement.nativeElement;
+    if (!this.audioUrl || !player.error || player.currentSrc !== this.audioUrl) return;
+    this.isPlaying = false;
+    this.errorMessage = player.error.code === 3
+      ? 'The selected audio could not be decoded. Try a different MP3, WAV, or FLAC file.'
+      : player.error.code === 4
+        ? 'This audio format is not supported by your browser. Try an MP3 or WAV file.'
+        : 'The audio file stopped loading. Select it again to retry.';
+  }
+
+  onDurationChange(): void {
+    const duration = this.audioElement.nativeElement.duration;
+    this.isLiveStream = duration === Infinity;
+    this.duration = Number.isFinite(duration) ? duration : 0;
   }
 
   onTimeUpdate(): void {
-    this.currentTime = this.audioElement.nativeElement.currentTime;
+    const currentTime = this.audioElement.nativeElement.currentTime;
+    this.currentTime = Number.isFinite(currentTime) ? currentTime : 0;
   }
 
   onMetadataLoaded(): void {
-    this.duration = this.audioElement.nativeElement.duration || 0;
+    this.onDurationChange();
+  }
+
+  private parseYouTubeVideoId(value: string): string | null {
+    try {
+      const url = new URL(value.trim());
+      const host = url.hostname.toLowerCase().replace(/^www\./, '');
+      if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+
+      let videoId = '';
+      if (host === 'youtu.be') {
+        videoId = url.pathname.split('/').filter(Boolean)[0] ?? '';
+      } else if (host === 'youtube.com' || host === 'm.youtube.com' || host === 'music.youtube.com') {
+        const segments = url.pathname.split('/').filter(Boolean);
+        if (url.pathname === '/watch') videoId = url.searchParams.get('v') ?? '';
+        else if (['embed', 'shorts', 'live'].includes(segments[0] ?? '')) videoId = segments[1] ?? '';
+      } else if (host === 'youtube-nocookie.com') {
+        const segments = url.pathname.split('/').filter(Boolean);
+        if (segments[0] === 'embed') videoId = segments[1] ?? '';
+      }
+      return /^[\w-]{11}$/.test(videoId) ? videoId : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private loadYouTubeApi(): Promise<YouTubeNamespace> {
+    if (window.YT) return Promise.resolve(window.YT);
+    if (this.youtubeApiPromise) return this.youtubeApiPromise;
+
+    this.youtubeApiPromise = new Promise<YouTubeNamespace>((resolve, reject) => {
+      const scriptUrl = 'https://www.youtube.com/iframe_api';
+      const existingScript = document.querySelector<HTMLScriptElement>(`script[src="${scriptUrl}"]`);
+      const timeout = window.setTimeout(() => reject(new Error('YouTube player API timed out.')), 15000);
+      const previousCallback = window.onYouTubeIframeAPIReady;
+      window.onYouTubeIframeAPIReady = () => {
+        previousCallback?.();
+        window.clearTimeout(timeout);
+        if (window.YT) resolve(window.YT);
+        else reject(new Error('YouTube player API did not initialize.'));
+      };
+      if (!existingScript) {
+        const script = document.createElement('script');
+        script.src = scriptUrl;
+        script.async = true;
+        script.onerror = () => {
+          window.clearTimeout(timeout);
+          reject(new Error('YouTube player API could not be loaded.'));
+        };
+        document.head.appendChild(script);
+      }
+    });
+    return this.youtubeApiPromise;
+  }
+
+  private async initializeYouTubePlayer(videoId: string, requestId: number): Promise<void> {
+    try {
+      const youtube = await this.loadYouTubeApi();
+      if (requestId !== this.youtubeRequestId || !this.youtubePlayerHost) return;
+
+      this.youtubePlayer = new youtube.Player(this.youtubePlayerHost.nativeElement, {
+        videoId,
+        width: '640',
+        height: '360',
+        playerVars: {
+          autoplay: 0,
+          controls: 0,
+          enablejsapi: 1,
+          playsinline: 1,
+          rel: 0,
+          origin: window.location.origin,
+        },
+        events: {
+          onReady: ({ target }) => {
+            if (requestId !== this.youtubeRequestId) {
+              target.destroy();
+              return;
+            }
+            this.zone.run(() => {
+              this.youtubeReady = true;
+              this.youtubeLoading = false;
+              const videoData = target.getVideoData();
+              this.trackName = videoData.title || `YouTube video ${videoId}`;
+              this.isLiveStream = Boolean(videoData.isLiveContent);
+              this.volume = this.muted ? 0 : this.volume;
+              target.setVolume(this.volume);
+              if (this.muted) target.mute();
+              const rates = target.getAvailablePlaybackRates();
+              if (rates.includes(this.playbackRate)) target.setPlaybackRate(this.playbackRate);
+              this.updateYouTubePosition();
+              this.startYouTubePositionPolling();
+              this.statusMessage = 'YouTube player ready. Upload an audio file to enable live audio analysis.';
+            });
+          },
+          onStateChange: ({ data }) => this.onYouTubeStateChange(data),
+          onError: ({ data }) => this.onYouTubeError(data),
+        },
+      });
+    } catch {
+      if (requestId !== this.youtubeRequestId) return;
+      this.youtubeApiPromise = undefined;
+      this.zone.run(() => {
+        this.youtubeLoading = false;
+        this.errorMessage = 'YouTube could not load this video. Check the link or try another video.';
+      });
+    }
+  }
+
+  private onYouTubeStateChange(state: number): void {
+    const youtube = window.YT;
+    this.zone.run(() => {
+      if (state === youtube?.PlayerState.PLAYING) {
+        this.isPlaying = true;
+        this.statusMessage = 'Playing from YouTube. Upload audio for live visual analysis.';
+      } else if (state === youtube?.PlayerState.PAUSED) {
+        this.isPlaying = false;
+      } else if (state === youtube?.PlayerState.ENDED) {
+        this.onEnded();
+      }
+    });
+  }
+
+  private onYouTubeError(code: number): void {
+    this.zone.run(() => {
+      this.youtubeLoading = false;
+      this.isPlaying = false;
+      this.errorMessage = code === 101 || code === 150
+        ? 'This video owner does not allow playback here. Try another YouTube video.'
+        : 'YouTube could not play this video. Check the link or try another video.';
+    });
+  }
+
+  private startYouTubePositionPolling(): void {
+    window.clearInterval(this.youtubePositionTimer);
+    this.zone.runOutsideAngular(() => {
+      this.youtubePositionTimer = window.setInterval(() => this.updateYouTubePosition(), 250);
+    });
+  }
+
+  private updateYouTubePosition(): void {
+    if (!this.youtubePlayer || !this.youtubeReady) return;
+    const currentTime = this.youtubePlayer.getCurrentTime();
+    const duration = this.youtubePlayer.getDuration();
+    const safeCurrentTime = Number.isFinite(currentTime) ? currentTime : 0;
+    const finiteDuration = Number.isFinite(duration) && duration > 0;
+    const safeDuration = finiteDuration ? duration : 0;
+    const live = Boolean(this.youtubePlayer.getVideoData().isLiveContent)
+      || (!finiteDuration && this.youtubePlayer.getPlayerState() === window.YT?.PlayerState.PLAYING);
+    if (Math.abs(safeCurrentTime - this.currentTime) < 0.2
+      && Math.abs(safeDuration - this.duration) < 0.2
+      && this.isLiveStream === live) return;
+
+    this.zone.run(() => {
+      this.currentTime = safeCurrentTime;
+      this.duration = safeDuration;
+      this.isLiveStream = live;
+    });
+  }
+
+  private destroyYouTubePlayer(): void {
+    this.youtubeRequestId++;
+    window.clearInterval(this.youtubePositionTimer);
+    this.youtubePositionTimer = 0;
+    this.youtubePlayer?.destroy();
+    this.youtubePlayer = undefined;
   }
 
   onEnded(): void {
@@ -669,18 +1194,21 @@ export class AppComponent implements AfterViewInit, OnDestroy {
     return this.audioContext;
   }
 
-  private async connectAudioGraph(): Promise<void> {
-    this.ensureAudioContext();
-  }
-
   private stopPlayback(): void {
     this.audioElement.nativeElement.pause();
+    this.youtubePlayer?.pauseVideo();
     this.isPlaying = false;
   }
 
   private resetAnalysis(): void {
     this.tempo = null;
     this.tempoSource = null;
+    this.prismBeatPulse = 0;
+    this.prismWaveAge = 1;
+    this.prismBassEnvelope = 0;
+    this.prismBassAverage = 0;
+    this.lastPrismTransient = 0;
+    this.prismBassInitialized = false;
     this.musicalKey = '--';
     this.loudness = '--';
     this.beatIntervals = [];
@@ -720,17 +1248,33 @@ export class AppComponent implements AfterViewInit, OnDestroy {
 
   private drawLoop = (): void => {
     const now = performance.now();
-    if (this.isPlaying) this.updateAudioLevels(now);
+    if (now - this.lastFrameTime < FRAME_INTERVAL_MS) {
+      this.animationFrame = requestAnimationFrame(this.drawLoop);
+      return;
+    }
+    const delta = this.lastFrameTime ? Math.min((now - this.lastFrameTime) / 1000, 0.1) : 1 / 45;
+    this.lastFrameTime = now;
+    this.beatPulse *= Math.exp(-delta / 0.34);
+    this.prismBeatPulse *= Math.exp(-delta / 0.16);
+    this.prismWaveAge += delta;
+    const hasLiveAnalysis = this.isPlaying && !this.isYouTubeSource;
+    if (hasLiveAnalysis) this.updateAudioLevels(now);
+    if (this.chaosMode && now - this.lastChaosStyleUpdate >= 1000 / 30) {
+      this.updateChaosEffects(now, delta, hasLiveAnalysis);
+    }
     this.canvases?.forEach(({ nativeElement }) => {
       const canvas = nativeElement;
       const cardId = VISUAL_CARD_IDS.find((id) => id === canvas.dataset['visual']);
       if (!cardId) return;
       if (!this.cardOptions[cardId].enabled || !this.visibleCanvases.has(canvas)) return;
+      const drive = this.updateCardDrive(cardId, delta);
       const size = this.canvasSizes.get(canvas);
       if (!size || !size.width || !size.height) return;
+      if (cardId === 'prism' && now - this.lastPrismRenderTime < PRISM_FRAME_INTERVAL_MS) return;
       const isSpectrogram = cardId === 'spectrogram';
       const networkFading = cardId === 'network' && this.networkLevels.some((level) => level > 0.01);
-      const canHoldFrame = (!this.isPlaying || isSpectrogram)
+      const canHoldFrame = (!hasLiveAnalysis || isSpectrogram)
+        && cardId !== 'prism'
         && !(cardId === 'fountain' && this.particles.length > 0)
         && !networkFading;
       let renderKey = '';
@@ -740,7 +1284,7 @@ export class AppComponent implements AfterViewInit, OnDestroy {
         const dataKey = isSpectrogram
           ? this.lastSpectrogramFrame
           : `${this.currentTime}:${this.bands.sub}:${this.bands.lows}:${this.bands.mids}:${this.bands.highMids}:${this.bands.air}:${this.soundingNotes}`;
-        renderKey = `${size.width}:${size.height}:${dataKey}:${this.darkMode}:${paletteKey}`;
+        renderKey = `${size.width}:${size.height}:${dataKey}:${this.darkMode}:${paletteKey}:${this.cardOptions[cardId].driver}:${this.cardOptions[cardId].intensity}:${Math.round(drive * 100)}`;
         if (this.renderedStaticFrames.get(canvas) === renderKey) return;
       }
       const context = canvas.getContext('2d');
@@ -755,13 +1299,19 @@ export class AppComponent implements AfterViewInit, OnDestroy {
       } else {
         context.clearRect(0, 0, size.width, size.height);
       }
+      const scale = 1 + drive * this.cardOptions[cardId].intensity * 0.11;
+      context.save();
+      context.translate(size.width / 2, size.height / 2);
+      context.scale(scale, scale);
+      context.translate(-size.width / 2, -size.height / 2);
       this.activeVisualCard = cardId;
       try {
         switch (canvas.dataset['visual']) {
           case 'specimen': this.drawSpecimen(context, size.width, size.height, now); break;
+          case 'prism': this.drawPrismField(context, size.width, size.height, now); break;
           case 'roll': this.drawRoll(context, size.width, size.height, now); break;
           case 'fountain': this.drawFountain(context, size.width, size.height); break;
-          case 'orbit': this.drawOrbit(context, size.width, size.height, now); break;
+          case 'orbit': this.drawOrbit(context, size.width, size.height); break;
           case 'glyph': this.drawGlyph(context, size.width, size.height, now); break;
           case 'waveform': this.drawWaveform(context, size.width, size.height); break;
           case 'scope': this.drawStereoScope(context, size.width, size.height); break;
@@ -770,12 +1320,66 @@ export class AppComponent implements AfterViewInit, OnDestroy {
           case 'network': this.drawNoteNetwork(context, size.width, size.height, now); break;
         }
       } finally {
+        context.restore();
         this.activeVisualCard = null;
       }
+      if (cardId === 'prism') this.lastPrismRenderTime = now;
       if (canHoldFrame) this.renderedStaticFrames.set(canvas, renderKey);
     });
     this.animationFrame = requestAnimationFrame(this.drawLoop);
   };
+
+  private updateChaosEffects(now: number, delta: number, hasLiveAnalysis: boolean): void {
+    this.lastChaosStyleUpdate = now;
+    const reducedMotion = this.reducedMotionQuery?.matches ?? false;
+    const bandEnergy = Math.min(
+      1,
+      (this.bands.sub * 0.38 + this.bands.lows * 0.27 + this.bands.mids * 0.2
+        + this.bands.highMids * 0.1 + this.bands.air * 0.05) / 100,
+    );
+    const spectralEnergy = Math.sqrt(bandEnergy);
+    const fallbackBeat = this.tempo
+      ? (Math.cos((this.currentTime * this.tempo / 60) * Math.PI * 2) + 1) * 0.5
+      : 0;
+    const targetEnergy = hasLiveAnalysis
+      ? Math.max(spectralEnergy, this.beatPulse * 0.9)
+      : this.isYouTubeSource && this.isPlaying ? fallbackBeat * 0.55 : 0;
+    const smoothing = 1 - Math.exp(-delta / (targetEnergy > this.chaosEnergy ? 0.045 : 0.2));
+    this.chaosEnergy += (targetEnergy - this.chaosEnergy) * smoothing;
+
+    const motionScale = reducedMotion ? 0 : 1;
+    const audioHue = this.bands.sub * 1.15 + this.bands.mids * 0.75 + this.bands.air * 0.6;
+    const hue = ((reducedMotion || !this.isPlaying ? 0 : now * 0.008) + audioHue) % 360;
+    const pulse = this.chaosEnergy;
+    const style = this.studioElement.nativeElement.style;
+    style.setProperty('--chaos-hue', `${hue.toFixed(1)}deg`);
+    style.setProperty('--chaos-energy', pulse.toFixed(3));
+    style.setProperty('--chaos-glow', (0.08 + pulse * 0.3).toFixed(3));
+    style.setProperty('--chaos-overlay-opacity', (0.1 + pulse * 0.55).toFixed(3));
+    style.setProperty('--chaos-drift', `${(Math.sin(now / 260) * pulse * motionScale * 3).toFixed(2)}px`);
+    style.setProperty('--chaos-rotation', `${(Math.sin(now / 1800) * pulse * motionScale * 1.7).toFixed(2)}deg`);
+  }
+
+  private updateCardDrive(id: VisualCardId, delta: number): number {
+    const { driver } = this.cardOptions[id];
+    const raw = driver === 'mix'
+      ? (this.bands.sub + this.bands.lows + this.bands.mids + this.bands.highMids + this.bands.air) / 5
+      : driver === 'beat'
+        ? this.beatPulse * 100
+        : driver === 'stereo'
+          ? (this.widthValue ?? 0)
+          : driver === 'notes'
+            ? Math.max(...this.networkTargets) * 100
+            : this.bands[driver];
+    const target = id === 'prism'
+      ? Math.min(0.55, Math.sqrt(Math.max(0, raw) / 100) * 0.58)
+      : Math.min(1, Math.sqrt(Math.max(0, raw) / 100) * 1.45);
+    const current = this.cardDrive[id];
+    const timeConstant = target > current ? 0.045 : 0.2;
+    const smoothing = 1 - Math.exp(-delta / timeConstant);
+    this.cardDrive[id] = current + (target - current) * smoothing;
+    return this.cardDrive[id];
+  }
 
   private updateAudioLevels(now: number): void {
     if (!this.analyser) return;
@@ -796,6 +1400,9 @@ export class AppComponent implements AfterViewInit, OnDestroy {
     }
 
     const bass = this.bands.sub * 0.68 + this.bands.lows * 0.32;
+    if (this.cardOptions.prism.enabled) {
+      this.updatePrismBeat(bass, now);
+    }
     if (bass > Math.max(18, this.previousBass * 1.42) && now - this.lastTransient > 180) {
       this.registerTransient(now);
     }
@@ -824,6 +1431,25 @@ export class AppComponent implements AfterViewInit, OnDestroy {
           : null;
         this.updatePitchTelemetry(binHz);
       });
+    }
+  }
+
+  private updatePrismBeat(bass: number, now: number): void {
+    if (!this.prismBassInitialized) {
+      this.prismBassEnvelope = bass;
+      this.prismBassAverage = bass;
+      this.prismBassInitialized = true;
+      return;
+    }
+
+    this.prismBassEnvelope += (bass - this.prismBassEnvelope) * (bass > this.prismBassEnvelope ? 0.55 : 0.2);
+    this.prismBassAverage += (bass - this.prismBassAverage) * (bass > this.prismBassAverage ? 0.035 : 0.012);
+    const onset = this.prismBassEnvelope - this.prismBassAverage;
+    const threshold = Math.max(3, this.prismBassAverage * 0.08);
+    if (onset > threshold && now - this.lastPrismTransient > 130) {
+      this.prismBeatPulse = Math.max(this.prismBeatPulse, Math.min(1, onset / Math.max(12, this.prismBassAverage * 0.38)));
+      this.prismWaveAge = 0;
+      this.lastPrismTransient = now;
     }
   }
 
@@ -875,6 +1501,7 @@ export class AppComponent implements AfterViewInit, OnDestroy {
 
   private registerTransient(now: number): void {
     this.lastTransient = now;
+    this.beatPulse = 1;
     if (this.lastBeatTime) {
       const interval = now - this.lastBeatTime;
       if (interval > 250 && interval < 1500) {
@@ -978,13 +1605,264 @@ export class AppComponent implements AfterViewInit, OnDestroy {
   private resizeCanvas(canvas: HTMLCanvasElement): void {
     const rect = canvas.getBoundingClientRect();
     if (!rect.width || !rect.height) return;
-    const ratio = Math.min(window.devicePixelRatio || 1, 1.5);
+    const ratio = Math.min(window.devicePixelRatio || 1, window.innerWidth < 700 ? 1.25 : 1.5);
     const pixelWidth = Math.max(1, Math.round(rect.width * ratio));
     const pixelHeight = Math.max(1, Math.round(rect.height * ratio));
     if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
     if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
     this.canvasSizes.set(canvas, { width: rect.width, height: rect.height });
     this.renderedStaticFrames.delete(canvas);
+  }
+
+  private drawPrismField(ctx: CanvasRenderingContext2D, width: number, height: number, now: number): void {
+    const hasLiveAudio = this.isPlaying && !this.isYouTubeSource;
+    const driverEnergy = hasLiveAudio ? this.cardDrive.prism : 0;
+    const kick = hasLiveAudio ? Math.min(0.65, this.prismBeatPulse * 0.72) : 0;
+    const intensity = Math.min(this.cardOptions.prism.intensity, 1.25);
+    const compactLayout = width < 560;
+    const clusterRadius = compactLayout
+      ? Math.min(width * 0.43, height / 3 * 0.46)
+      : Math.min(width / 6, height * 0.48);
+    const verticalRadius = compactLayout ? clusterRadius : height * 0.46;
+    const formColors = [this.theme.accent, this.theme.secondary, this.theme.particle] as const;
+    const formSignals = hasLiveAudio
+      ? [this.bands.sub, this.bands.mids, this.bands.highMids].map((band) => Math.sqrt(band / 100))
+      : [0, 0, 0];
+    const copiesPerForm = [167, 167, 166] as const;
+    const waveRadius = Math.min(1.15, this.prismWaveAge / 0.58);
+    const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+    const projectedX = this.prismProjectedX;
+    const projectedY = this.prismProjectedY;
+
+    for (let form = 0; form < PRISM_GEOMETRIES.length; form++) {
+      const geometry = PRISM_GEOMETRIES[form];
+      const centerX = compactLayout ? width / 2 : width * ((form + 0.5) / 3);
+      const centerY = compactLayout ? height * ((form + 0.5) / 3) : height / 2;
+      const tone = formSignals[form];
+      const formColor = formColors[form];
+      const count = copiesPerForm[form];
+      const objectOffset = form * 167;
+      const cellWidth = Math.max(1, (clusterRadius * 2) / 16);
+      const cellHeight = Math.max(1, (verticalRadius * 2) / 16);
+
+      this.prismCellHeads.fill(-1);
+      this.prismCollisionTargetX.fill(0, objectOffset, objectOffset + count);
+      this.prismCollisionTargetY.fill(0, objectOffset, objectOffset + count);
+      for (let instance = 0; instance < count; instance++) {
+        const objectIndex = objectOffset + instance;
+        const spread = Math.sqrt((instance + 0.5) / count);
+        const angle = instance * goldenAngle + form * 0.72 + now * (0.00004 + tone * 0.00012);
+        const sizeSeed = ((instance * 37 + form * 19) % 101) / 100;
+        const kickSensitivity = 0.45 + sizeSeed * 1.05;
+        const wave = hasLiveAudio
+          ? kick * kickSensitivity * Math.exp(-Math.pow((spread - waveRadius) / 0.14, 2))
+          : 0;
+        const size = (2.4 + sizeSeed * 1.6) * (0.8 + sizeSeed * 0.4)
+          * (0.88 + driverEnergy * 0.2 * intensity + tone * 0.04
+            + wave * (0.75 + sizeSeed * 0.55));
+        const radialOffset = wave * (2 + spread * 14);
+        const driftPhase = instance * 2.399 + form * 1.7;
+        const driftX = Math.sin(now * 0.00047 + driftPhase) * (1.25 + tone * 1.4);
+        const driftY = Math.cos(now * 0.00039 + driftPhase * 1.13) * (0.9 + tone * 1.1);
+        const x = centerX + Math.cos(angle) * (clusterRadius * spread + radialOffset) + driftX;
+        const y = centerY + Math.sin(angle) * (verticalRadius * spread + radialOffset) + driftY;
+
+        this.prismObjectX[objectIndex] = x;
+        this.prismObjectY[objectIndex] = y;
+        this.prismObjectSize[objectIndex] = size;
+        this.prismObjectAngle[objectIndex] = angle;
+        this.prismObjectSeed[objectIndex] = sizeSeed;
+        this.prismObjectWave[objectIndex] = wave;
+
+        const cellX = Math.max(0, Math.min(15, Math.floor((x - (centerX - clusterRadius)) / cellWidth)));
+        const cellY = Math.max(0, Math.min(15, Math.floor((y - (centerY - verticalRadius)) / cellHeight)));
+        const cell = cellY * 16 + cellX;
+        this.prismCellX[instance] = cellX;
+        this.prismCellY[instance] = cellY;
+        this.prismCellNext[instance] = this.prismCellHeads[cell];
+        this.prismCellHeads[cell] = instance;
+      }
+
+      for (let instance = 0; instance < count; instance++) {
+        const objectIndex = objectOffset + instance;
+        const cellX = this.prismCellX[instance];
+        const cellY = this.prismCellY[instance];
+        const x = this.prismObjectX[objectIndex];
+        const y = this.prismObjectY[objectIndex];
+        for (let offsetY = -1; offsetY <= 1; offsetY++) {
+          const neighborY = cellY + offsetY;
+          if (neighborY < 0 || neighborY > 15) continue;
+          for (let offsetX = -1; offsetX <= 1; offsetX++) {
+            const neighborX = cellX + offsetX;
+            if (neighborX < 0 || neighborX > 15) continue;
+            let other = this.prismCellHeads[neighborY * 16 + neighborX];
+            while (other !== -1) {
+              if (other > instance) {
+                const otherIndex = objectOffset + other;
+                const dx = x - this.prismObjectX[otherIndex];
+                const dy = y - this.prismObjectY[otherIndex];
+                const distanceSquared = dx * dx + dy * dy;
+                const minimumDistance = (this.prismObjectSize[objectIndex]
+                  + this.prismObjectSize[otherIndex]) * 0.62 + 1.2;
+                if (distanceSquared < minimumDistance * minimumDistance) {
+                  const distance = Math.sqrt(distanceSquared) || 0.001;
+                  const push = Math.min(2.5, (minimumDistance - distance) * 0.28);
+                  const pushX = dx / distance * push;
+                  const pushY = dy / distance * push;
+                  this.prismCollisionTargetX[objectIndex] += pushX;
+                  this.prismCollisionTargetY[objectIndex] += pushY;
+                  this.prismCollisionTargetX[otherIndex] -= pushX;
+                  this.prismCollisionTargetY[otherIndex] -= pushY;
+                }
+              }
+              other = this.prismCellNext[other];
+            }
+          }
+        }
+      }
+
+      for (let instance = 0; instance < count; instance++) {
+        const objectIndex = objectOffset + instance;
+        let targetX = this.prismCollisionTargetX[objectIndex];
+        let targetY = this.prismCollisionTargetY[objectIndex];
+        const targetLength = Math.hypot(targetX, targetY);
+        if (targetLength > 4) {
+          targetX = targetX / targetLength * 4;
+          targetY = targetY / targetLength * 4;
+        }
+        this.prismCollisionX[objectIndex] += (targetX - this.prismCollisionX[objectIndex]) * 0.32;
+        this.prismCollisionY[objectIndex] += (targetY - this.prismCollisionY[objectIndex]) * 0.32;
+      }
+
+      if (!compactLayout) {
+        const glow = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, clusterRadius * 1.8);
+        glow.addColorStop(0, `${formColor}12`);
+        glow.addColorStop(0.58, `${formColor}08`);
+        glow.addColorStop(1, `${formColor}00`);
+        ctx.fillStyle = glow;
+        ctx.fillRect(centerX - clusterRadius, centerY - verticalRadius, clusterRadius * 2, verticalRadius * 2);
+      }
+
+      let edgeOffset = 0;
+      ctx.beginPath();
+      for (let instance = 0; instance < count; instance++) {
+        const objectIndex = objectOffset + instance;
+        const angle = this.prismObjectAngle[objectIndex];
+        const sizeSeed = this.prismObjectSeed[objectIndex];
+        const wave = this.prismObjectWave[objectIndex];
+        const size = this.prismObjectSize[objectIndex];
+        const x = this.prismObjectX[objectIndex] + this.prismCollisionX[objectIndex];
+        const y = this.prismObjectY[objectIndex] + this.prismCollisionY[objectIndex];
+        if (size < PRISM_DETAIL_THRESHOLD) {
+          const silhouette = PRISM_SILHOUETTES[form];
+          const silhouetteScale = size * (form === 2 ? 0.78 : 1);
+          for (let point = 0; point < silhouette.length; point++) {
+            const [vx, vy] = silhouette[point];
+            projectedX[point] = x + vx * silhouetteScale;
+            projectedY[point] = y + vy * silhouetteScale;
+          }
+          ctx.moveTo(projectedX[0], projectedY[0]);
+          for (let point = 1; point < silhouette.length; point++) {
+            ctx.lineTo(projectedX[point], projectedY[point]);
+          }
+          ctx.closePath();
+          for (let point = 0; point < silhouette.length; point++) {
+            const next = (point + 1) % silhouette.length;
+            this.prismEdgeBuffer[edgeOffset++] = projectedX[point];
+            this.prismEdgeBuffer[edgeOffset++] = projectedY[point];
+            this.prismEdgeBuffer[edgeOffset++] = projectedX[next];
+            this.prismEdgeBuffer[edgeOffset++] = projectedY[next];
+          }
+          continue;
+        }
+        const wobble = Math.sin(now * 0.001 + instance * 1.7 + form) * (0.6 + tone * 2);
+        const particleX = x + Math.cos(angle + 1.2) * wobble;
+        const particleY = y + Math.sin(angle + 1.2) * wobble;
+        const rotationY = now * (0.00035 + tone * 0.00055 + wave * 0.00035) + instance * 0.61 + form;
+        const rotationX = Math.sin(now * (0.0003 + tone * 0.00025) + instance + form) * 0.85;
+        const sinY = Math.sin(rotationY);
+        const cosY = Math.cos(rotationY);
+        const sinX = Math.sin(rotationX);
+        const cosX = Math.cos(rotationX);
+        const perspective = 3 / (3.2 + Math.sin(instance * 2.4 + form) * 0.55);
+        for (let vertex = 0; vertex < geometry.vertices.length; vertex++) {
+          const [vx, vy, vz] = geometry.vertices[vertex];
+          const rotatedX = vx * cosY - vz * sinY;
+          const rotatedZ = vx * sinY + vz * cosY;
+          const rotatedY = vy * cosX - rotatedZ * sinX;
+          projectedX[vertex] = particleX + rotatedX * size * perspective;
+          projectedY[vertex] = particleY + rotatedY * size * perspective;
+        }
+        for (const [a, b, c] of geometry.faces) {
+          const winding = (projectedX[b] - projectedX[a]) * (projectedY[c] - projectedY[a])
+            - (projectedY[b] - projectedY[a]) * (projectedX[c] - projectedX[a]);
+          ctx.moveTo(projectedX[a], projectedY[a]);
+          ctx.lineTo(projectedX[winding < 0 ? c : b], projectedY[winding < 0 ? c : b]);
+          ctx.lineTo(projectedX[winding < 0 ? b : c], projectedY[winding < 0 ? b : c]);
+          ctx.closePath();
+        }
+        for (const [a, b] of geometry.edges) {
+          this.prismEdgeBuffer[edgeOffset++] = projectedX[a];
+          this.prismEdgeBuffer[edgeOffset++] = projectedY[a];
+          this.prismEdgeBuffer[edgeOffset++] = projectedX[b];
+          this.prismEdgeBuffer[edgeOffset++] = projectedY[b];
+        }
+      }
+
+      const formAlpha = Math.min(0.98, 0.84 + tone * 0.08 + kick * 0.06);
+      ctx.save();
+      ctx.globalAlpha = formAlpha;
+      ctx.fillStyle = formColor;
+      ctx.fill();
+      ctx.beginPath();
+      for (let offset = 0; offset < edgeOffset; offset += 4) {
+        ctx.moveTo(this.prismEdgeBuffer[offset], this.prismEdgeBuffer[offset + 1]);
+        ctx.lineTo(this.prismEdgeBuffer[offset + 2], this.prismEdgeBuffer[offset + 3]);
+      }
+      ctx.globalAlpha = 0.38 + tone * 0.15 + kick * 0.2;
+      ctx.strokeStyle = formColor;
+      ctx.lineWidth = 0.42 + kick * 0.8;
+      ctx.stroke();
+      ctx.restore();
+
+      if (hasLiveAudio && kick > 0.035) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.shadowColor = formColor;
+        ctx.shadowBlur = 7 + kick * 20;
+
+        ctx.beginPath();
+        for (let instance = 0; instance < count; instance++) {
+          const objectIndex = objectOffset + instance;
+          const wave = this.prismObjectWave[objectIndex];
+          if (wave < 0.045) continue;
+          const x = this.prismObjectX[objectIndex] + this.prismCollisionX[objectIndex];
+          const y = this.prismObjectY[objectIndex] + this.prismCollisionY[objectIndex];
+          const glowRadius = this.prismObjectSize[objectIndex] * (0.34 + wave * 0.3);
+          ctx.moveTo(x + glowRadius, y);
+          ctx.arc(x, y, glowRadius, 0, Math.PI * 2);
+        }
+        ctx.globalAlpha = 0.13 + kick * 0.2;
+        ctx.fillStyle = formColor;
+        ctx.fill();
+
+        ctx.shadowBlur = 0;
+        ctx.beginPath();
+        for (let instance = 0; instance < count; instance++) {
+          const objectIndex = objectOffset + instance;
+          if (this.prismObjectWave[objectIndex] < 0.045) continue;
+          const x = this.prismObjectX[objectIndex] + this.prismCollisionX[objectIndex];
+          const y = this.prismObjectY[objectIndex] + this.prismCollisionY[objectIndex];
+          const coreRadius = this.prismObjectSize[objectIndex] * 0.19;
+          ctx.moveTo(x + coreRadius, y);
+          ctx.arc(x, y, coreRadius, 0, Math.PI * 2);
+        }
+        ctx.globalAlpha = 0.28 + kick * 0.3;
+        ctx.fillStyle = formColor;
+        ctx.fill();
+        ctx.restore();
+      }
+    }
   }
 
   private drawSpecimen(ctx: CanvasRenderingContext2D, width: number, height: number, now: number): void {
@@ -1182,81 +2060,160 @@ export class AppComponent implements AfterViewInit, OnDestroy {
       ctx.strokeStyle = column === 0 ? `${this.theme.ink}42` : `${this.theme.ink}24`;
       ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bottom); ctx.stroke();
     }
-    const barDuration = this.tempo ? 240 / this.tempo : 0;
-    const firstVisibleBar = barDuration ? Math.max(0, Math.floor(this.currentTime / barDuration) - 3) : 0;
+    const barDuration = this.tempo
+      ? 240 / this.tempo
+      : Math.max(0.25, Math.min(this.duration || 30, 30) / 4);
+    const firstVisibleBar = this.tempo
+      ? Math.max(0, Math.floor(this.currentTime / barDuration) - 3)
+      : Math.max(0, Math.ceil(this.currentTime / barDuration) - 4);
     const windowStart = firstVisibleBar * barDuration;
     for (let column = 0; column < 4; column++) {
       ctx.fillStyle = this.theme.muted;
       ctx.font = '9px "IBM Plex Mono", monospace';
       ctx.fillText(String(firstVisibleBar + column + 1), left + column * columnWidth + 5, top + 11);
     }
-    if (barDuration) {
-      for (const event of this.noteEvents) {
-        if (event.time < windowStart || event.time > this.currentTime) continue;
-        const x = left + ((event.time - windowStart) / (barDuration * 4)) * gridWidth;
-        const row = Math.max(0, Math.min(6, 6 - Math.floor((event.midi - 24) / 12)));
-        ctx.globalAlpha = 0.3 + event.strength / 510;
-        ctx.fillStyle = this.theme.accent;
-        ctx.fillRect(x, top + row * rowHeight + rowHeight * 0.4, Math.max(4, gridWidth / 48), 3);
-      }
+    for (const event of this.noteEvents) {
+      if (event.time < windowStart || event.time > this.currentTime) continue;
+      const x = left + ((event.time - windowStart) / (barDuration * 4)) * gridWidth;
+      const row = Math.max(0, Math.min(6, 6 - Math.floor((event.midi - 24) / 12)));
+      ctx.globalAlpha = 0.3 + event.strength / 510;
+      ctx.fillStyle = this.theme.accent;
+      ctx.fillRect(x, top + row * rowHeight + rowHeight * 0.4, Math.max(4, gridWidth / 48), 3);
     }
     ctx.globalAlpha = 1;
-    const playhead = left + (barDuration
-      ? Math.max(0, Math.min(gridWidth, ((this.currentTime - windowStart) / (barDuration * 4)) * gridWidth))
-      : (this.duration ? (this.currentTime / this.duration) * gridWidth : 0));
+    const playhead = left + Math.max(0, Math.min(gridWidth,
+      ((this.currentTime - windowStart) / (barDuration * 4)) * gridWidth));
     ctx.strokeStyle = this.theme.ink;
     ctx.lineWidth = 1.35;
     ctx.beginPath(); ctx.moveTo(playhead, 0); ctx.lineTo(playhead, height); ctx.stroke();
     ctx.fillStyle = this.theme.ink;
     ctx.fillRect(playhead - 3, 0, 6, 3);
-    if (this.isPlaying && this.tempo && this.chordNotes.length) {
+    if (this.isPlaying && this.chordNotes.length) {
       ctx.fillStyle = this.theme.accent;
       for (const note of this.chordNotes) {
         const pitchClass = PITCH_CLASSES.indexOf(note.replace(/\d+$/, ''));
         const octave = Number(note.match(/\d+$/)?.[0] ?? 3);
         const midi = pitchClass + (octave + 1) * 12;
         const y = bottom - ((midi - 24) / 72) * gridHeight;
-        ctx.fillRect(playhead + 4, y - 2, 14 + this.bands.mids * 0.12, 3);
+        const noteX = Math.min(right - 18, playhead + 4);
+        ctx.fillRect(noteX, y - 2, 14 + this.bands.mids * 0.12, 3);
       }
     }
     void now;
   }
 
   private drawWaveform(ctx: CanvasRenderingContext2D, width: number, height: number): void {
-    const centerY = height / 2;
-    ctx.strokeStyle = `${this.theme.ink}25`;
+    const left = 10;
+    const right = width - 10;
+    const top = 8;
+    const bottom = height - 8;
+    const rowCount = 6;
+    const rowGap = Math.max(5, height * 0.035);
+    const rowHeight = (bottom - top - rowGap * (rowCount - 1)) / rowCount;
+    const bands = [
+      [6000, 16000],
+      [2000, 6000],
+      [700, 2000],
+      [250, 700],
+      [60, 250],
+      [30, 60],
+    ] as const;
+    const frames = this.spectrogramFrames;
+    const sampleCount = Math.max(1, frames.length);
+    const visualScale = 0.62 + Math.min(1.3, this.cardDrive.waveform * this.cardOptions.waveform.intensity);
+    const bandColors = [
+      this.theme.particle,
+      this.theme.secondary,
+      this.theme.accent,
+      this.theme.particle,
+      this.theme.secondary,
+      this.theme.accent,
+    ];
+
+    for (let row = 0; row < rowCount; row++) {
+      const y = top + row * (rowHeight + rowGap);
+      const centerY = y + rowHeight * 0.5;
+      const lowerFrequency = bands[row][0];
+      const upperFrequency = bands[row][1];
+      const lowerBin = Math.max(0, Math.floor(
+        (Math.log(lowerFrequency / 35) / Math.log(16000 / 35)) * 64,
+      ));
+      const upperBin = Math.min(63, Math.ceil(
+        (Math.log(upperFrequency / 35) / Math.log(16000 / 35)) * 64,
+      ));
+      const upper: number[] = [];
+      const lower: number[] = [];
+
+      for (let column = 0; column < sampleCount; column++) {
+        const frame = frames[column];
+        let energy = 0;
+        let count = 0;
+        if (frame) {
+          for (let bin = lowerBin; bin <= upperBin; bin++) {
+            energy += frame[bin] ?? 0;
+            count++;
+          }
+        }
+        const normalized = count ? Math.sqrt((energy / count) / 255) : 0;
+        const envelope = normalized * rowHeight * 0.47 * visualScale;
+        const x = left + (column / Math.max(1, sampleCount - 1)) * (right - left);
+        upper.push(centerY - envelope);
+        lower.push(centerY + envelope);
+        if (column === 0 || column % 16 === 0) {
+          ctx.fillStyle = `${this.theme.ink}0e`;
+          ctx.fillRect(x, y, 1, rowHeight);
+        }
+      }
+
+      ctx.beginPath();
+      ctx.moveTo(left, centerY);
+      for (let column = 0; column < sampleCount; column++) {
+        const x = left + (column / Math.max(1, sampleCount - 1)) * (right - left);
+        ctx.lineTo(x, upper[column]);
+      }
+      for (let column = sampleCount - 1; column >= 0; column--) {
+        const x = left + (column / Math.max(1, sampleCount - 1)) * (right - left);
+        ctx.lineTo(x, lower[column]);
+      }
+      ctx.closePath();
+      ctx.fillStyle = `${bandColors[row]}20`;
+      ctx.fill();
+
+      ctx.beginPath();
+      for (let column = 0; column < sampleCount; column++) {
+        const x = left + (column / Math.max(1, sampleCount - 1)) * (right - left);
+        if (column === 0) ctx.moveTo(x, upper[column]);
+        else ctx.lineTo(x, upper[column]);
+      }
+      ctx.strokeStyle = `${bandColors[row]}c2`;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      ctx.beginPath();
+      for (let column = 0; column < sampleCount; column++) {
+        const x = left + (column / Math.max(1, sampleCount - 1)) * (right - left);
+        if (column === 0) ctx.moveTo(x, lower[column]);
+        else ctx.lineTo(x, lower[column]);
+      }
+      ctx.strokeStyle = `${bandColors[row]}66`;
+      ctx.lineWidth = 0.65;
+      ctx.stroke();
+    }
+
+    const cursorX = right - 1;
+    ctx.strokeStyle = `${this.theme.accent}b8`;
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(0, centerY);
-    ctx.lineTo(width, centerY);
+    ctx.moveTo(cursorX, top - 2);
+    ctx.lineTo(cursorX, bottom + 2);
     ctx.stroke();
-    if (!this.analyser) return;
-
-    const amplitude = height * 0.43;
-    const waveform = ctx.createLinearGradient(0, 0, width, 0);
-    waveform.addColorStop(0, this.theme.accent);
-    waveform.addColorStop(0.55, this.theme.particle);
-    waveform.addColorStop(1, this.theme.secondary);
     ctx.beginPath();
-    const sampleStep = Math.max(1, Math.floor(this.timeData.length / Math.max(1, Math.floor(width * 2))));
-    for (let index = 0; index < this.timeData.length; index += sampleStep) {
-      const x = (index / (this.timeData.length - 1)) * width;
-      const y = centerY + ((this.timeData[index] - 128) / 128) * amplitude;
-      if (index === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
-    ctx.strokeStyle = waveform;
+    ctx.arc(cursorX, top + 2 * (rowHeight + rowGap) + rowHeight / 2, 5, 0, Math.PI * 2);
+    ctx.fillStyle = this.theme.surface;
+    ctx.fill();
+    ctx.strokeStyle = this.theme.accent;
     ctx.lineWidth = 1.5;
-    ctx.shadowColor = this.theme.accent;
-    ctx.shadowBlur = this.darkMode ? 7 : 0;
     ctx.stroke();
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = this.theme.muted;
-    ctx.font = '8px "IBM Plex Mono", monospace';
-    ctx.textAlign = 'left';
-    ctx.fillText('+1', 2, 11);
-    ctx.fillText('0', 2, centerY - 3);
-    ctx.fillText('-1', 2, height - 2);
   }
 
   private drawStereoScope(ctx: CanvasRenderingContext2D, width: number, height: number): void {
@@ -1639,54 +2596,105 @@ export class AppComponent implements AfterViewInit, OnDestroy {
       size: 0.45 + Math.random() * (highFrequency ? 1.15 : 0.7),
       hue: highFrequency ? 1 : 0,
     });
-    if (this.particles.length > 700) this.particles.splice(0, 40);
+    if (this.particles.length > 520) this.particles.splice(0, 24);
   }
 
-  private drawOrbit(ctx: CanvasRenderingContext2D, width: number, height: number, now: number): void {
+  private drawOrbit(ctx: CanvasRenderingContext2D, width: number, height: number): void {
     const cx = width / 2;
     const cy = height / 2;
-    const radius = Math.min(width, height) * 0.33;
+    const radius = Math.min(width * 0.35, height * 0.37);
+    const beatDuration = this.tempo ? 60 / this.tempo : 0;
+    const barDuration = beatDuration * 4;
+    const barPhase = barDuration ? (this.currentTime % barDuration) / barDuration : 0;
+    const activeStep = beatDuration ? Math.floor(barPhase * 16) : -1;
+    const barNumber = barDuration ? Math.floor(this.currentTime / barDuration) + 1 : '--';
+    const pulse = this.isPlaying ? this.beatPulse : 0;
     ctx.save();
     ctx.translate(cx, cy);
-    ctx.strokeStyle = `${this.theme.ink}24`;
-    ctx.lineWidth = 0.8;
-    for (let ring = 1; ring <= 3; ring++) {
-      ctx.beginPath(); ctx.arc(0, 0, radius * ring / 3, 0, Math.PI * 2); ctx.stroke();
+
+    ctx.strokeStyle = `${this.theme.ink}1c`;
+    ctx.lineWidth = 1;
+    for (const ringScale of [0.34, 0.58, 0.82, 1]) {
+      ctx.beginPath();
+      ctx.arc(0, 0, radius * ringScale, 0, Math.PI * 2);
+      ctx.stroke();
     }
-    for (let tick = 0; tick < 32; tick++) {
-      const angle = (tick / 32) * Math.PI * 2 - Math.PI / 2;
-      const outer = radius * 1.25;
-      const inner = outer - (tick % 8 === 0 ? 8 : 3);
+
+    for (let tick = 0; tick < 48; tick++) {
+      const angle = (tick / 48) * Math.PI * 2 - Math.PI / 2;
+      const majorTick = tick % 12 === 0;
+      const outer = radius * 1.17;
+      const inner = outer - (majorTick ? 8 : tick % 3 === 0 ? 4 : 2);
       ctx.beginPath();
       ctx.moveTo(Math.cos(angle) * inner, Math.sin(angle) * inner);
       ctx.lineTo(Math.cos(angle) * outer, Math.sin(angle) * outer);
+      ctx.strokeStyle = majorTick ? `${this.theme.ink}66` : `${this.theme.ink}26`;
+      ctx.lineWidth = majorTick ? 1.2 : 0.8;
       ctx.stroke();
     }
-    ctx.fillStyle = this.theme.muted;
+
     ctx.font = '10px "IBM Plex Mono", monospace';
     ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
     for (let bar = 0; bar < 4; bar++) {
       const angle = (bar / 4) * Math.PI * 2 - Math.PI / 2;
-      ctx.fillText(String(bar + 1), Math.cos(angle) * radius * 1.47, Math.sin(angle) * radius * 1.47 + 3);
+      ctx.fillStyle = bar === (activeStep < 0 ? -1 : Math.floor(activeStep / 4))
+        ? this.theme.accent
+        : `${this.theme.ink}ad`;
+      ctx.fillText(String(bar + 1), Math.cos(angle) * radius * 1.37, Math.sin(angle) * radius * 1.37);
     }
-    const rotation = this.tempo ? this.currentTime * (Math.PI * 2 / (60 / this.tempo * 4)) : 0;
-    ctx.strokeStyle = `${this.theme.accent}a8`;
-    ctx.lineWidth = 4;
-    ctx.lineCap = 'round';
+
+    const segmentAngle = (Math.PI * 2) / 16;
+    for (let step = 0; step < 16; step++) {
+      const start = -Math.PI / 2 + step * segmentAngle + 0.045;
+      const end = -Math.PI / 2 + (step + 1) * segmentAngle - 0.045;
+      const isActive = step === activeStep;
+      const hasPassed = activeStep >= 0 && step < activeStep;
+      ctx.beginPath();
+      ctx.arc(0, 0, radius * 0.91, start, end);
+      ctx.strokeStyle = isActive
+        ? this.theme.accent
+        : hasPassed
+          ? `${this.theme.accent}6b`
+          : `${this.theme.accent}1a`;
+      ctx.lineWidth = isActive ? 3 + pulse * 1.5 : 2.5;
+      ctx.lineCap = 'round';
+      ctx.shadowColor = this.theme.accent;
+      ctx.shadowBlur = isActive && this.darkMode ? 7 + pulse * 8 : 0;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+
+    const handAngle = -Math.PI / 2 + barPhase * Math.PI * 2;
+    const handLength = radius * 1.17;
     ctx.beginPath();
-    ctx.arc(0, 0, radius * 1.08, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, (this.bands.sub + this.bands.mids) / 180));
+    ctx.moveTo(0, 0);
+    ctx.lineTo(Math.cos(handAngle) * handLength, Math.sin(handAngle) * handLength);
+    ctx.strokeStyle = `${this.theme.ink}e0`;
+    ctx.lineWidth = 1.4;
+    ctx.lineCap = 'round';
+    ctx.shadowColor = `${this.theme.ink}a6`;
+    ctx.shadowBlur = 4;
     ctx.stroke();
-    ctx.strokeStyle = this.theme.ink;
-    ctx.lineWidth = 1.3;
-    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(rotation - Math.PI / 2) * radius * 1.35, Math.sin(rotation - Math.PI / 2) * radius * 1.35); ctx.stroke();
-    ctx.fillStyle = this.theme.accent;
-    ctx.beginPath(); ctx.arc(0, 0, 4, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = this.theme.muted;
+    ctx.shadowBlur = 0;
+
+    ctx.fillStyle = this.theme.surface;
+    ctx.beginPath();
+    ctx.arc(0, 0, radius * 0.28, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = `${this.theme.muted}b8`;
     ctx.font = '8px "IBM Plex Mono", monospace';
-    ctx.fillText('BAR', 0, -6);
+    ctx.fillText('BAR', 0, -radius * 0.08);
     ctx.fillStyle = this.theme.ink;
     ctx.font = 'bold 15px "IBM Plex Mono", monospace';
-    ctx.fillText(this.tempo ? String(Math.floor(this.currentTime / (60 / this.tempo * 4)) + 1) : '--', 0, 12);
+    ctx.fillText(String(barNumber), 0, radius * 0.14);
+    ctx.fillStyle = this.theme.particle;
+    ctx.shadowColor = this.theme.particle;
+    ctx.shadowBlur = 6 + pulse * 8;
+    ctx.beginPath();
+    ctx.arc(0, 0, 3.5 + pulse * 1.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
     ctx.restore();
   }
 
@@ -1724,7 +2732,8 @@ export class AppComponent implements AfterViewInit, OnDestroy {
       this.particleTrailsEnabled = localStorage.getItem('audiovis-particle-trails') !== 'false';
       this.darkMode = this.isDarkColor(this.theme.bg);
     } catch {
-      Object.assign(this.theme, DEFAULT_THEME);
+      Object.assign(this.theme, DARK_THEME);
+      this.darkMode = true;
     }
     try {
       const savedCards: unknown = JSON.parse(localStorage.getItem('audiovis-card-options') ?? 'null');
@@ -1734,8 +2743,10 @@ export class AppComponent implements AfterViewInit, OnDestroy {
           if (!saved) continue;
           if (typeof saved.enabled === 'boolean') this.cardOptions[id].enabled = saved.enabled;
           if (typeof saved.intensity === 'number' && Number.isFinite(saved.intensity)) {
-            this.cardOptions[id].intensity = Math.min(1.8, Math.max(0.4, saved.intensity));
+            this.cardOptions[id].intensity = Math.min(2.2, Math.max(0.4, saved.intensity));
           }
+          const driver = AUDIO_DRIVERS.find(({ value }) => value === saved.driver)?.value;
+          if (driver) this.cardOptions[id].driver = driver;
         }
       }
     } catch {

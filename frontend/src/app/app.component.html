@@ -1,4 +1,5 @@
-<main class="studio" [class.dark-mode]="darkMode" [style.--page-bg]="theme.bg" [style.--surface]="theme.surface"
+<main #studio class="studio" [class.dark-mode]="darkMode" [class.chaos-mode]="chaosMode"
+  [style.--page-bg]="theme.bg" [style.--surface]="theme.surface"
   [style.--ink]="theme.ink" [style.--muted]="theme.muted" [style.--accent]="theme.accent"
   [style.--secondary]="theme.secondary" [style.--particle]="theme.particle">
   <header class="topbar">
@@ -8,11 +9,15 @@
     </a>
     <div class="track-name" [title]="trackName">{{ trackName }}</div>
     <div class="top-actions">
-      <span class="connection"><span class="connection-light"></span>{{ isPlaying ? 'ANALYZING' : 'READY' }}</span>
+      <span class="connection"><span class="connection-light"></span>
+        {{ isYouTubeSource ? (youtubeLoading ? 'CONNECTING' : 'YOUTUBE') : isPlaying ? 'ANALYZING' : 'READY' }}
+      </span>
       <button class="icon-button theme-trigger" type="button" (click)="toggleThemeDrawer()"
         [attr.aria-expanded]="themeOpen" aria-label="Customize colors">
         <span class="palette-icon" aria-hidden="true"></span>
       </button>
+      <button class="youtube-button" type="button" (click)="toggleYouTubeInput()"
+        [attr.aria-expanded]="youtubeInputOpen">YOUTUBE LINK</button>
       <button class="upload-button" type="button" (click)="fileInput.click()">
         <span class="upload-glyph" aria-hidden="true">↑</span> OPEN AUDIO
       </button>
@@ -30,17 +35,68 @@
     <div class="strip-metric"><span>KEY / EST.</span><strong>{{ musicalKey }}</strong></div>
     <div class="strip-metric"><span>LOUDNESS</span><strong>{{ loudness }} <small>LUFS</small></strong></div>
     <div class="strip-metric"><span>BAR / BEAT</span><strong>{{ barBeat }}</strong></div>
-    <div class="track-progress">
-      <button class="play-toggle" type="button" (click)="togglePlayback()" [disabled]="!hasAudio"
-        [attr.aria-label]="isPlaying ? 'Pause audio' : 'Play audio'">
-        <span [class.pause-icon]="isPlaying" [class.play-icon]="!isPlaying" aria-hidden="true"></span>
-      </button>
-      <div class="progress-control">
-        <input type="range" min="0" [max]="duration || 1" step="0.1" [value]="currentTime"
-          (input)="seek($event)" aria-label="Seek audio">
-        <div class="time-readout"><span>{{ formatTime(currentTime) }}</span><span>{{ formatTime(duration) }}</span></div>
-      </div>
+  </section>
+
+  <form class="youtube-import" *ngIf="youtubeInputOpen" (submit)="loadYouTubeLink($event)">
+    <label for="youtube-url">YouTube video link</label>
+    <div class="youtube-import-row">
+      <input id="youtube-url" type="url" name="youtubeUrl" required
+        placeholder="https://www.youtube.com/watch?v=..." [value]="youtubeUrl"
+        (input)="onYouTubeUrlInput($event)">
+      <button class="upload-button" type="submit">LOAD VIDEO</button>
+      <button class="cancel-import" type="button" (click)="toggleYouTubeInput()">CANCEL</button>
     </div>
+    <p>Plays in YouTube's official player. Upload an audio file for live visual analysis.</p>
+  </form>
+
+  <section class="transport" aria-label="Audio playback controls">
+    <div class="transport-timeline">
+      <span class="time-readout">{{ formatTime(currentTime) }}</span>
+      <input type="range" min="0" [max]="canSeek ? duration : 1" step="0.1" [value]="currentTime"
+        [disabled]="!canSeek" (input)="seek($event)" aria-label="Seek audio">
+      <span class="time-readout">{{ durationLabel }}</span>
+    </div>
+    <div class="transport-controls">
+      <div class="transport-buttons">
+        <button class="seek-button" type="button" (click)="skip(-10)" [disabled]="!hasAudio"
+          aria-label="Back 10 seconds">−10</button>
+        <button class="play-toggle" type="button" (click)="togglePlayback()" [disabled]="!hasAudio"
+          [attr.aria-label]="isPlaying ? 'Pause audio' : 'Play audio'">
+          <span [class.pause-icon]="isPlaying" [class.play-icon]="!isPlaying" aria-hidden="true"></span>
+        </button>
+        <button class="seek-button" type="button" (click)="skip(10)" [disabled]="!hasAudio"
+          aria-label="Forward 10 seconds">+10</button>
+      </div>
+      <div class="volume-control">
+        <button class="mute-button" type="button" (click)="toggleMute()" [disabled]="!hasAudio"
+          [attr.aria-label]="muted ? 'Unmute audio' : 'Mute audio'">{{ muted ? 'UNMUTE' : 'VOLUME' }}</button>
+        <input type="range" min="0" max="100" step="1" [value]="muted ? 0 : volume"
+          [disabled]="!hasAudio" (input)="setVolume($event)" aria-label="Audio volume">
+      </div>
+      <label class="speed-control">SPEED
+        <select [value]="playbackRate" [disabled]="!hasAudio" (change)="setPlaybackRate($event)"
+          aria-label="Playback speed">
+          <option value="0.5">0.5×</option>
+          <option value="0.75">0.75×</option>
+          <option value="1">1×</option>
+          <option value="1.25">1.25×</option>
+          <option value="1.5">1.5×</option>
+          <option value="2">2×</option>
+        </select>
+      </label>
+      <button class="chaos-toggle" type="button" [class.active]="chaosMode"
+        [attr.aria-pressed]="chaosMode" (click)="toggleChaosMode()">
+        {{ chaosMode ? 'CHAOS ON' : 'CHAOS OFF' }}
+      </button>
+    </div>
+  </section>
+
+  <section class="youtube-stage" *ngIf="isYouTubeSource" aria-label="YouTube player">
+    <div class="youtube-frame">
+      <div #youtubePlayerHost class="youtube-player-host"></div>
+      <div class="youtube-loading" *ngIf="youtubeLoading">Connecting to YouTube…</div>
+    </div>
+    <p>YouTube playback is protected by its embedded player. Uploaded files power the live visualizer.</p>
   </section>
 
   <div class="error-notice" *ngIf="errorMessage" role="alert">{{ errorMessage }}</div>
@@ -56,10 +112,17 @@
           <input type="checkbox" [checked]="getCardOptions(cardId).enabled"
             (change)="setCardEnabled(cardId, $event)">
         </label>
+        <label class="card-menu-driver">
+          <span>Audio driver</span>
+          <select [value]="getCardOptions(cardId).driver" (change)="setCardDriver(cardId, $event)"
+            [attr.aria-label]="'Audio driver for ' + cardId">
+            <option *ngFor="let driver of audioDrivers" [value]="driver.value">{{ driver.label }}</option>
+          </select>
+        </label>
         <label class="card-menu-intensity">
-          <span>Intensity <output>{{ getCardOptions(cardId).intensity | number:'1.1-1' }}×</output></span>
-          <input type="range" min="0.4" max="1.8" step="0.1" [value]="getCardOptions(cardId).intensity"
-            (input)="setCardIntensity(cardId, $event)" [attr.aria-label]="'Intensity for ' + cardId">
+          <span>Response <output>{{ getCardOptions(cardId).intensity | number:'1.1-1' }}×</output></span>
+          <input type="range" min="0.4" max="2.2" step="0.1" [value]="getCardOptions(cardId).intensity"
+            (input)="setCardIntensity(cardId, $event)" [attr.aria-label]="'Audio response for ' + cardId">
         </label>
         <div class="card-color-controls">
           <label *ngFor="let field of visualColorFields">
@@ -110,9 +173,32 @@
       </ng-container>
     </article>
 
+    <article class="panel prism-panel" [class.menu-open]="openCardMenu === 'prism'">
+      <header class="panel-heading">
+        <h2><span>02</span> PRISM FIELD</h2>
+        <span class="panel-caption">{{ isYouTubeSource && isPlaying
+          ? 'YOUTUBE AUDIO UNAVAILABLE / UPLOAD FOR LIVE RESPONSE'
+          : isPlaying ? '500 FACETED OBJECTS / KICK-WAVE FIELD' : 'PLAY UPLOADED AUDIO TO ACTIVATE' }}</span>
+        <ng-container *ngTemplateOutlet="cardMenu; context: { cardId: 'prism' }"></ng-container>
+      </header>
+      <div class="panel-content" [hidden]="!cardOptions.prism.enabled">
+        <canvas #vizCanvas data-visual="prism" class="viz-canvas prism-canvas"
+          aria-label="500 faceted 3D objects in three distinct forms, filling the field and pulsing with kick beats"></canvas>
+        <div class="telemetry-row prism-telemetry">
+          <div><span>OBJECTS / FORMS</span><strong>500 <small>/ 3</small></strong></div>
+          <div><span>KICK / SUB</span><strong>{{ kickLevel }}</strong></div>
+          <div><span>BEAT / BAR</span><strong>{{ barBeat }}</strong></div>
+          <div><span>FIELD ENERGY</span><strong>{{ prismFieldEnergy | number:'2.0-0' }}<small>%</small></strong></div>
+        </div>
+      </div>
+      <ng-container *ngIf="!cardOptions.prism.enabled">
+        <ng-container *ngTemplateOutlet="hiddenCard; context: { cardId: 'prism' }"></ng-container>
+      </ng-container>
+    </article>
+
     <article class="panel roll-panel" [class.menu-open]="openCardMenu === 'roll'">
       <header class="panel-heading">
-        <h2><span>02</span> ROLL</h2><span class="panel-caption">PITCH REGISTER / 4 BARS</span>
+        <h2><span>03</span> ROLL</h2><span class="panel-caption">PITCH REGISTER / 4 BARS</span>
         <ng-container *ngTemplateOutlet="cardMenu; context: { cardId: 'roll' }"></ng-container>
       </header>
       <div class="panel-content" [hidden]="!cardOptions.roll.enabled">
@@ -129,7 +215,7 @@
 
     <article class="panel fountain-panel" [class.menu-open]="openCardMenu === 'fountain'">
       <header class="panel-heading">
-        <h2><span>03</span> FOUNTAIN</h2><span class="panel-caption">PARTICLE / FREQUENCY</span>
+        <h2><span>04</span> FOUNTAIN</h2><span class="panel-caption">PARTICLE / FREQUENCY</span>
         <ng-container *ngTemplateOutlet="cardMenu; context: { cardId: 'fountain' }"></ng-container>
       </header>
       <div class="panel-content" [hidden]="!cardOptions.fountain.enabled">
@@ -148,7 +234,7 @@
 
     <article class="panel orbit-panel" [class.menu-open]="openCardMenu === 'orbit'">
       <header class="panel-heading">
-        <h2><span>04</span> ORBIT</h2><span class="panel-caption">PHASE / RHYTHM</span>
+        <h2><span>05</span> ORBIT</h2><span class="panel-caption">PHASE / RHYTHM</span>
         <ng-container *ngTemplateOutlet="cardMenu; context: { cardId: 'orbit' }"></ng-container>
       </header>
       <div class="panel-content" [hidden]="!cardOptions.orbit.enabled">
@@ -166,7 +252,7 @@
 
     <article class="panel glyph-panel" [class.menu-open]="openCardMenu === 'glyph'">
       <header class="panel-heading">
-        <h2><span>05</span> GLYPH</h2><span class="panel-caption">SPECTRAL BEAT MAP</span>
+        <h2><span>06</span> GLYPH</h2><span class="panel-caption">SPECTRAL BEAT MAP</span>
         <ng-container *ngTemplateOutlet="cardMenu; context: { cardId: 'glyph' }"></ng-container>
       </header>
       <div class="panel-content" [hidden]="!cardOptions.glyph.enabled">
@@ -184,12 +270,12 @@
 
     <article class="panel waveform-panel" [class.menu-open]="openCardMenu === 'waveform'">
       <header class="panel-heading">
-        <h2>WAVEFORM</h2><span class="panel-caption">AMPLITUDE / PEAK LEVEL</span>
+        <h2>WAVEFORM</h2><span class="panel-caption">SIX-BAND AUDIO HISTORY</span>
         <ng-container *ngTemplateOutlet="cardMenu; context: { cardId: 'waveform' }"></ng-container>
       </header>
       <div class="panel-content" [hidden]="!cardOptions.waveform.enabled">
         <canvas #vizCanvas data-visual="waveform" class="viz-canvas waveform-canvas"
-          aria-label="Live audio waveform and peak level"></canvas>
+          aria-label="Live six-band audio history waveform"></canvas>
         <div class="telemetry-row compact-telemetry">
           <div><span>PEAK</span><strong>{{ peakDb }} <small>dBFS</small></strong></div>
           <div><span>LOUDNESS</span><strong>{{ loudness }} <small>LUFS</small></strong></div>
@@ -323,5 +409,6 @@
   </aside>
 
   <audio #audioPlayer (timeupdate)="onTimeUpdate()" (loadedmetadata)="onMetadataLoaded()"
-    (play)="isPlaying = true" (pause)="isPlaying = false" (ended)="onEnded()"></audio>
+    (durationchange)="onDurationChange()" (play)="onLocalPlay()" (pause)="onLocalPause()"
+    (ended)="onEnded()" (error)="onLocalAudioError()"></audio>
 </main>

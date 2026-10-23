@@ -11,15 +11,25 @@
   --accent: #00a6c7;
   --secondary: #ce39a8;
   --particle: #62dce3;
-  min-height: 100vh;
+  min-height: 100dvh;
+  position: relative;
+  isolation: isolate;
   overflow: hidden;
   color: var(--ink);
-  background: var(--page-bg);
+  background:
+    radial-gradient(ellipse at 12% 0%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 34rem),
+    radial-gradient(ellipse at 91% 20%, color-mix(in srgb, var(--secondary) 11%, transparent), transparent 38rem),
+    var(--page-bg);
   transition: background-color 180ms ease, color 180ms ease;
 }
 
+.studio.dark-mode { color-scheme: dark; }
+
 .topbar,
 .track-strip,
+.transport,
+.youtube-import,
+.youtube-stage,
 .dashboard-grid,
 .footer-bar {
   width: min(1440px, calc(100% - 64px));
@@ -31,7 +41,7 @@
   display: grid;
   grid-template-columns: 1fr minmax(160px, 0.8fr) 1fr;
   align-items: center;
-  border-bottom: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
 }
 
 .wordmark {
@@ -103,8 +113,12 @@
 
 .icon-button,
 .upload-button,
+.youtube-button,
 .play-toggle,
-.reset-button {
+.reset-button,
+.seek-button,
+.mute-button,
+.cancel-import {
   color: var(--ink);
   border: 1px solid color-mix(in srgb, var(--ink) 18%, transparent);
   background: transparent;
@@ -114,7 +128,9 @@
 
 .icon-button:active,
 .upload-button:active,
+.youtube-button:active,
 .play-toggle:active,
+.seek-button:active,
 .reset-button:active {
   transform: scale(0.97);
 }
@@ -177,6 +193,25 @@
   background: color-mix(in srgb, var(--ink) 82%, var(--accent));
 }
 
+.youtube-button,
+.cancel-import {
+  min-height: 35px;
+  padding: 0 11px;
+  border-radius: 18px;
+  color: var(--ink);
+  font: 600 9px/1 "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.youtube-button:hover,
+.cancel-import:hover,
+.seek-button:hover,
+.mute-button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .upload-glyph {
   font-size: 14px;
   font-family: Arial, sans-serif;
@@ -185,11 +220,11 @@
 
 .track-strip {
   display: grid;
-  grid-template-columns: minmax(210px, 1.75fr) repeat(4, minmax(75px, 0.75fr)) minmax(200px, 1.65fr);
+  grid-template-columns: minmax(210px, 1.75fr) repeat(4, minmax(75px, 0.75fr));
   align-items: center;
   gap: 22px;
-  min-height: 97px;
-  padding-block: 17px;
+  min-height: 105px;
+  padding-block: 19px;
 }
 
 .track-identity,
@@ -293,6 +328,191 @@
   font: 9px/1 "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
 }
 
+.youtube-import,
+.transport,
+.youtube-stage {
+  width: min(1440px, calc(100% - 64px));
+  margin: 0 auto 14px;
+}
+
+.youtube-import {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+}
+
+.youtube-import > label,
+.speed-control {
+  color: var(--muted);
+  font: 9px "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+  letter-spacing: 0.08em;
+}
+
+.youtube-import-row {
+  display: flex;
+  gap: 8px;
+}
+
+.youtube-import-row input {
+  min-width: 0;
+  min-height: 36px;
+  flex: 1;
+  padding: 0 11px;
+  border: 1px solid color-mix(in srgb, var(--ink) 18%, transparent);
+  border-radius: 6px;
+  background: var(--page-bg);
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.youtube-import > p,
+.youtube-stage > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.cancel-import {
+  background: transparent;
+}
+
+.transport {
+  display: grid;
+  gap: 13px;
+  padding: 14px 18px 13px;
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+}
+
+.transport-timeline {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) 42px;
+  align-items: center;
+  gap: 12px;
+}
+
+.transport-timeline .time-readout {
+  justify-content: center;
+  margin: 0;
+}
+
+.transport-timeline input,
+.volume-control input {
+  width: 100%;
+  height: 4px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.transport-timeline input:disabled,
+.volume-control input:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.transport-controls {
+  display: grid;
+  grid-template-columns: 1fr minmax(150px, 0.7fr) auto auto;
+  align-items: center;
+  gap: 20px;
+}
+
+.transport-buttons {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.seek-button,
+.mute-button {
+  min-width: 48px;
+  min-height: 30px;
+  padding: 0 8px;
+  border-radius: 16px;
+  background: transparent;
+  color: var(--muted);
+  font: 600 9px "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+  cursor: pointer;
+}
+
+.seek-button:disabled,
+.mute-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.volume-control {
+  display: grid;
+  grid-template-columns: auto minmax(60px, 1fr);
+  align-items: center;
+  gap: 11px;
+}
+
+.mute-button {
+  border: 0;
+  letter-spacing: 0.06em;
+}
+
+.speed-control {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  white-space: nowrap;
+}
+
+.speed-control select {
+  min-height: 32px;
+  padding: 0 9px;
+  border: 1px solid color-mix(in srgb, var(--ink) 18%, transparent);
+  border-radius: 6px;
+  background: var(--page-bg);
+  color: var(--ink);
+  font: 10px "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+}
+
+.speed-control select:disabled { opacity: 0.5; }
+
+.youtube-stage {
+  display: grid;
+  gap: 8px;
+  max-width: 760px;
+}
+
+.youtube-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  border-radius: 12px;
+  background: #080910;
+}
+
+.youtube-player-host,
+.youtube-frame iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.youtube-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--page-bg) 82%, transparent);
+  color: var(--ink);
+  font: 11px "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+}
+
 .error-notice,
 .status-notice {
   width: min(1440px, calc(100% - 64px));
@@ -315,22 +535,28 @@
 .dashboard-grid {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
-  gap: 13px;
-  padding-bottom: 25px;
+  gap: 15px;
+  padding-bottom: 30px;
 }
 
 .panel {
   position: relative;
   z-index: 0;
   min-width: 0;
-  padding: 17px 19px 14px;
+  padding: 18px 20px 16px;
   overflow: visible;
-  border: 1px solid color-mix(in srgb, var(--ink) 7%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
   border-radius: 12px;
-  background: var(--surface);
-  box-shadow: 0 2px 8px color-mix(in srgb, var(--ink) 3%, transparent);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--surface) 98%, var(--accent)), var(--surface) 58%),
+    var(--surface);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--ink) 5%, transparent),
+    0 12px 32px color-mix(in srgb, var(--page-bg) 72%, transparent);
+  transition: border-color 160ms ease;
 }
 
+.panel:hover { border-color: color-mix(in srgb, var(--accent) 44%, transparent); }
 .panel.menu-open { z-index: 4; }
 
 .panel-content[hidden] { display: none; }
@@ -369,8 +595,8 @@
 .panel-heading h1,
 .panel-heading h2 {
   margin: 0;
-  font: 600 11px/1 "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
-  letter-spacing: 0.11em;
+  font: 650 12px/1 "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+  letter-spacing: 0.13em;
 }
 
 .panel-heading h1 span,
@@ -425,7 +651,7 @@
   top: calc(100% + 5px);
   right: 0;
   display: grid;
-  width: 218px;
+  width: 248px;
   max-height: min(70vh, 440px);
   gap: 12px;
   padding: 13px;
@@ -445,6 +671,24 @@
   justify-content: space-between;
   gap: 10px;
   font-size: 11px;
+}
+
+.card-menu-driver {
+  display: grid;
+  gap: 7px;
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.card-menu-driver select {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 9px;
+  border: 1px solid color-mix(in srgb, var(--ink) 18%, transparent);
+  border-radius: 6px;
+  background: var(--page-bg);
+  color: var(--ink);
+  font: 10px "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
 }
 
 .card-menu-toggle input {
@@ -616,6 +860,13 @@
 .viz-canvas {
   display: block;
   width: 100%;
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, transparent);
+  border-radius: 9px;
+  background:
+    radial-gradient(ellipse at 50% 75%, color-mix(in srgb, var(--secondary) 13%, transparent), transparent 55%),
+    radial-gradient(ellipse at 52% 42%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 62%),
+    color-mix(in srgb, var(--page-bg) 48%, var(--surface));
+  box-shadow: inset 0 0 34px color-mix(in srgb, var(--accent) 7%, transparent);
 }
 
 .specimen-canvas {
@@ -676,8 +927,6 @@
   justify-content: space-between;
   gap: 10px 16px;
 }
-
-.orbit-telemetry strong { font-size: 10px; }
 
 .glyph-canvas {
   height: 204px;
@@ -940,20 +1189,25 @@
 }
 
 .dark-mode .panel {
-  border-color: color-mix(in srgb, var(--ink) 8%, transparent);
-  box-shadow: none;
+  border-color: color-mix(in srgb, var(--accent) 21%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 3%),
+    0 12px 34px rgb(0 0 0 / 14%);
 }
 
 @media (max-width: 900px) {
   .topbar,
   .track-strip,
+  .transport,
+  .youtube-import,
+  .youtube-stage,
   .dashboard-grid,
   .footer-bar {
     width: min(100% - 36px, 720px);
   }
 
   .track-strip {
-    grid-template-columns: 1.4fr repeat(2, minmax(70px, 0.7fr)) minmax(180px, 1.3fr);
+    grid-template-columns: 1.4fr repeat(2, minmax(70px, 0.7fr));
     gap: 16px;
   }
 
@@ -976,21 +1230,32 @@
 
   .topbar,
   .track-strip,
+  .transport,
+  .youtube-import,
+  .youtube-stage,
   .dashboard-grid,
   .footer-bar {
     width: calc(100% - 24px);
   }
 
   .topbar {
-    height: 58px;
+    min-height: 58px;
+    height: auto;
     grid-template-columns: 1fr auto;
+    gap: 8px;
+    padding-block: 8px;
   }
 
   .track-name,
   .connection { display: none; }
 
-  .top-actions { gap: 8px; }
-  .upload-button { min-height: 32px; padding-inline: 10px; font-size: 8px; }
+  .wordmark { gap: 6px; font-size: 9px; }
+  .wordmark-light { display: none; }
+  .top-actions { gap: 5px; }
+  .theme-trigger { width: 36px; height: 36px; }
+  .youtube-button,
+  .cancel-import { min-height: 38px; padding-inline: 8px; font-size: 7px; }
+  .upload-button { min-height: 38px; padding-inline: 10px; font-size: 8px; }
 
   .track-strip {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1003,7 +1268,6 @@
   .strip-metric { gap: 5px; }
   .strip-metric > span { font-size: 7px; }
   .strip-metric strong { font-size: 11px; }
-  .track-progress { grid-column: 1 / -1; }
   .strip-metric:nth-of-type(4),
   .strip-metric:nth-of-type(5) { display: grid; }
 
@@ -1016,6 +1280,7 @@
     padding: 13px 12px 12px;
     border-radius: 10px;
   }
+  .panel-heading { gap: 6px; }
 
   .specimen-panel,
   .roll-panel,
@@ -1077,7 +1342,20 @@
   .spectrogram-canvas { height: 150px; }
   .network-canvas { height: 175px; }
   .compact-telemetry { justify-content: space-between; gap: 8px; }
-  .card-menu-popover { width: min(218px, calc(100vw - 48px)); }
+  .card-menu-popover { width: min(248px, calc(100vw - 48px)); }
+  .transport { gap: 12px; padding: 12px; }
+  .transport-timeline { grid-template-columns: 36px minmax(0, 1fr) 36px; gap: 7px; }
+  .transport-timeline .time-readout { font-size: 8px; }
+  .transport-controls { grid-template-columns: 1fr auto; gap: 10px; }
+  .transport-buttons { justify-content: flex-start; gap: 7px; }
+  .play-toggle { width: 40px; height: 40px; }
+  .seek-button { min-width: 44px; min-height: 40px; }
+  .volume-control { grid-column: 1 / -1; grid-row: 2; }
+  .speed-control { grid-column: 2; grid-row: 1; justify-self: end; font-size: 8px; }
+  .youtube-import-row { flex-wrap: wrap; }
+  .youtube-import-row input { flex-basis: 100%; }
+  .youtube-import-row .upload-button,
+  .youtube-import-row .cancel-import { flex: 1; justify-content: center; }
   .binary-strip { font-size: 8px; letter-spacing: 0.1em; }
   .footer-bar { font-size: 6px; }
   .footer-bar span:last-child { display: none; }

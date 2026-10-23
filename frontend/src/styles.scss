@@ -10,7 +10,7 @@
 * { box-sizing: border-box; }
 
 body {
-  min-width: 320px;
+  min-width: 0;
   min-height: 100vh;
   margin: 0;
 }
@@ -24,4 +24,67 @@ button:focus-visible,
 input:focus-visible {
   outline: 2px solid #00a6c7;
   outline-offset: 3px;
+}
+
+.studio .transport-controls .chaos-toggle {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--ink) 20%, transparent);
+  border-radius: 18px;
+  background: transparent;
+  color: var(--muted);
+  font: 600 9px/1 "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+
+.studio .transport-controls .chaos-toggle.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.chaos-mode::after {
+  position: fixed;
+  z-index: 10;
+  inset: -20%;
+  pointer-events: none;
+  content: "";
+  opacity: var(--chaos-overlay-opacity, 0.1);
+  transform: rotate(var(--chaos-rotation, 0deg)) scale(1.08);
+  background:
+    radial-gradient(ellipse at 18% 22%, hsl(var(--chaos-hue, 210deg) 100% 55% / 44%), transparent 38%),
+    radial-gradient(ellipse at 82% 34%, hsl(calc(var(--chaos-hue, 210deg) + 115deg) 100% 55% / 40%), transparent 36%),
+    radial-gradient(ellipse at 52% 86%, hsl(calc(var(--chaos-hue, 210deg) + 230deg) 100% 55% / 34%), transparent 42%);
+  mix-blend-mode: color;
+  transition: opacity 90ms linear, transform 100ms linear;
+}
+
+main.studio.chaos-mode .dashboard-grid .panel {
+  border-color: hsl(var(--chaos-hue, 210deg) 84% 66% / var(--chaos-glow, 0.08));
+  transform: translate3d(0, var(--chaos-drift, 0px), 0);
+  transition: border-color 100ms linear, transform 100ms linear;
+}
+
+main.studio.chaos-mode .dashboard-grid canvas.viz-canvas {
+  filter: hue-rotate(var(--chaos-hue, 0deg)) saturate(1.8);
+  transition: filter 100ms linear;
+}
+
+main.studio .dashboard-grid .prism-panel { grid-column: 1 / -1; min-height: 360px; }
+main.studio .dashboard-grid .prism-canvas {
+  height: 264px;
+}
+main.studio .dashboard-grid .prism-telemetry { justify-content: space-between; }
+
+@media (max-width: 600px) {
+  .studio .transport-controls .chaos-toggle { grid-column: 1 / -1; grid-row: 3; justify-self: start; }
+  main.studio .dashboard-grid .prism-panel { min-height: 0; }
+  main.studio .dashboard-grid .prism-canvas { height: 408px; }
+  main.studio .dashboard-grid .prism-telemetry {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px 8px;
+  }
 }
