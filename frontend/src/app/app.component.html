@@ -1,0 +1,327 @@
+<main class="studio" [class.dark-mode]="darkMode" [style.--page-bg]="theme.bg" [style.--surface]="theme.surface"
+  [style.--ink]="theme.ink" [style.--muted]="theme.muted" [style.--accent]="theme.accent"
+  [style.--secondary]="theme.secondary" [style.--particle]="theme.particle">
+  <header class="topbar">
+    <a class="wordmark" href="/" aria-label="Audiovis home">
+      <span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span>AUDIOVIS<span class="wordmark-light"> / STUDIO</span></span>
+    </a>
+    <div class="track-name" [title]="trackName">{{ trackName }}</div>
+    <div class="top-actions">
+      <span class="connection"><span class="connection-light"></span>{{ isPlaying ? 'ANALYZING' : 'READY' }}</span>
+      <button class="icon-button theme-trigger" type="button" (click)="toggleThemeDrawer()"
+        [attr.aria-expanded]="themeOpen" aria-label="Customize colors">
+        <span class="palette-icon" aria-hidden="true"></span>
+      </button>
+      <button class="upload-button" type="button" (click)="fileInput.click()">
+        <span class="upload-glyph" aria-hidden="true">↑</span> OPEN AUDIO
+      </button>
+      <input #fileInput class="visually-hidden" type="file" accept=".mp3,.wav,.flac,audio/mpeg,audio/wav,audio/flac"
+        (change)="onFileSelected($event)" aria-label="Choose an audio file">
+    </div>
+  </header>
+
+  <section class="track-strip" aria-label="Track metadata">
+    <div class="track-identity">
+      <span class="track-index">TRACK / {{ trackId }}</span>
+      <strong>{{ trackName }}</strong>
+    </div>
+    <div class="strip-metric"><span>TEMPO / EST.</span><strong>{{ tempo || '--' }} <small>BPM</small></strong></div>
+    <div class="strip-metric"><span>KEY / EST.</span><strong>{{ musicalKey }}</strong></div>
+    <div class="strip-metric"><span>LOUDNESS</span><strong>{{ loudness }} <small>LUFS</small></strong></div>
+    <div class="strip-metric"><span>BAR / BEAT</span><strong>{{ barBeat }}</strong></div>
+    <div class="track-progress">
+      <button class="play-toggle" type="button" (click)="togglePlayback()" [disabled]="!hasAudio"
+        [attr.aria-label]="isPlaying ? 'Pause audio' : 'Play audio'">
+        <span [class.pause-icon]="isPlaying" [class.play-icon]="!isPlaying" aria-hidden="true"></span>
+      </button>
+      <div class="progress-control">
+        <input type="range" min="0" [max]="duration || 1" step="0.1" [value]="currentTime"
+          (input)="seek($event)" aria-label="Seek audio">
+        <div class="time-readout"><span>{{ formatTime(currentTime) }}</span><span>{{ formatTime(duration) }}</span></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="error-notice" *ngIf="errorMessage" role="alert">{{ errorMessage }}</div>
+  <div class="status-notice" *ngIf="statusMessage" role="status">{{ statusMessage }}</div>
+
+  <ng-template #cardMenu let-cardId="cardId">
+    <div class="card-menu" (click)="$event.stopPropagation()">
+      <button class="card-menu-trigger" type="button" [attr.aria-label]="'Settings for ' + cardId"
+        [attr.aria-expanded]="openCardMenu === cardId" (click)="toggleCardMenu(cardId, $event)">•••</button>
+      <div class="card-menu-popover" *ngIf="openCardMenu === cardId" (click)="$event.stopPropagation()">
+        <label class="card-menu-toggle">
+          <span>Show visual</span>
+          <input type="checkbox" [checked]="getCardOptions(cardId).enabled"
+            (change)="setCardEnabled(cardId, $event)">
+        </label>
+        <label class="card-menu-intensity">
+          <span>Intensity <output>{{ getCardOptions(cardId).intensity | number:'1.1-1' }}×</output></span>
+          <input type="range" min="0.4" max="1.8" step="0.1" [value]="getCardOptions(cardId).intensity"
+            (input)="setCardIntensity(cardId, $event)" [attr.aria-label]="'Intensity for ' + cardId">
+        </label>
+        <div class="card-color-controls">
+          <label *ngFor="let field of visualColorFields">
+            <span>{{ field.label }}</span>
+            <input type="color" [value]="getCardColor(cardId, field.key)"
+              (input)="setCardColor(cardId, field.key, $event)"
+              [attr.aria-label]="field.label + ' color for ' + cardId">
+          </label>
+        </div>
+      </div>
+    </div>
+  </ng-template>
+  <ng-template #hiddenCard let-cardId="cardId">
+    <div class="hidden-visual">
+      <span>Visual hidden</span>
+      <button type="button" (click)="showCard(cardId)">Show visual</button>
+    </div>
+  </ng-template>
+
+  <section class="dashboard-grid" aria-label="Audio visualizer dashboard">
+    <article class="panel specimen-panel" [class.menu-open]="openCardMenu === 'specimen'">
+      <header class="panel-heading">
+        <h1><span>01</span> SPECIMEN</h1>
+        <span class="panel-caption">SPATIAL SPECTRUM / STEREO FIELD</span>
+        <ng-container *ngTemplateOutlet="cardMenu; context: { cardId: 'specimen' }"></ng-container>
+      </header>
+      <div class="panel-content" [hidden]="!cardOptions.specimen.enabled">
+        <div class="specimen-layout">
+          <div class="specimen-readouts">
+            <div class="readout-main"><span>SUB F2</span><strong>{{ bands.sub | number:'2.0-0' }}<small>%</small></strong></div>
+            <div class="mini-wave" aria-hidden="true"><i *ngFor="let point of waveformBars" [style.height.%]="point"></i></div>
+            <div class="pan-readout"><span>LEFT <b>{{ panLeft }}</b></span><span>RIGHT <b>{{ panRight }}</b></span></div>
+            <div class="pan-line"><i [style.left.%]="panPosition"></i></div>
+            <div class="specimen-footer"><span>KICK / SUB <b>{{ kickLevel }}</b></span><span>AIR / HAIR <b>{{ bands.air | number:'2.0-0' }}</b></span></div>
+          </div>
+          <canvas #vizCanvas data-visual="specimen" class="viz-canvas specimen-canvas"
+            aria-label="Animated polar spectrum map"></canvas>
+        </div>
+        <div class="telemetry-row">
+          <div><span>SUB F2</span><strong>{{ bands.sub | number:'2.0-0' }}<small>%</small></strong></div>
+          <div><span>MIDS</span><strong>{{ bands.mids | number:'2.0-0' }}<small>%</small></strong></div>
+          <div><span>AIR</span><strong>{{ bands.air | number:'2.0-0' }}<small>%</small></strong></div>
+          <div><span>WIDTH</span><strong>{{ widthValue ?? '--' }}<small *ngIf="widthValue !== null">%</small></strong></div>
+        </div>
+      </div>
+      <ng-container *ngIf="!cardOptions.specimen.enabled">
+        <ng-container *ngTemplateOutlet="hiddenCard; context: { cardId: 'specimen' }"></ng-container>
+      </ng-container>
+    </article>
+
+    <article class="panel roll-panel" [class.menu-open]="openCardMenu === 'roll'">
+      <header class="panel-heading">
+        <h2><span>02</span> ROLL</h2><span class="panel-caption">PITCH REGISTER / 4 BARS</span>
+        <ng-container *ngTemplateOutlet="cardMenu; context: { cardId: 'roll' }"></ng-container>
+      </header>
+      <div class="panel-content" [hidden]="!cardOptions.roll.enabled">
+        <div class="roll-frame"><canvas #vizCanvas data-visual="roll" class="viz-canvas roll-canvas"
+          aria-label="Scrolling piano roll from C1 to C7"></canvas></div>
+        <div class="telemetry-row roll-telemetry">
+          <div><span>BAR</span><strong>{{ barBeat }}</strong></div>
+          <div><span>TEMPO / EST.</span><strong>{{ tempo || '--' }} <small>BPM</small></strong></div>
+          <div><span>SOUNDING</span><strong>{{ soundingNotes }}</strong></div>
+        </div>
+      </div>
+      <ng-container *ngIf="!cardOptions.roll.enabled"><ng-container *ngTemplateOutlet="hiddenCard; context: { cardId: 'roll' }"></ng-container></ng-container>
+    </article>
+
+    <article class="panel fountain-panel" [class.menu-open]="openCardMenu === 'fountain'">
+      <header class="panel-heading">
+        <h2><span>03</span> FOUNTAIN</h2><span class="panel-caption">PARTICLE / FREQUENCY</span>
+        <ng-container *ngTemplateOutlet="cardMenu; context: { cardId: 'fountain' }"></ng-container>
+      </header>
+      <div class="panel-content" [hidden]="!cardOptions.fountain.enabled">
+        <canvas #vizCanvas data-visual="fountain" class="viz-canvas fountain-canvas"
+          aria-label="Audio-reactive particle fountain"></canvas>
+        <div class="telemetry-row fountain-telemetry">
+          <div><span>SPARKS</span><strong>{{ sparkCount }}</strong></div>
+          <div><span>SIDES</span><strong>{{ bands.highMids | number:'2.0-0' }}<small>%</small></strong></div>
+          <div><span>LOWS</span><strong>{{ bands.sub | number:'2.0-0' }}<small>%</small></strong></div>
+          <div><span>MIDDLE</span><strong>{{ bands.mids | number:'2.0-0' }}<small>%</small></strong></div>
+          <div><span>HIGHS</span><strong>{{ bands.air | number:'2.0-0' }}<small>%</small></strong></div>
+        </div>
+      </div>
+      <ng-container *ngIf="!cardOptions.fountain.enabled"><ng-container *ngTemplateOutlet="hiddenCard; context: { cardId: 'fountain' }"></ng-container></ng-container>
+    </article>
+
+    <article class="panel orbit-panel" [class.menu-open]="openCardMenu === 'orbit'">
+      <header class="panel-heading">
+        <h2><span>04</span> ORBIT</h2><span class="panel-caption">PHASE / RHYTHM</span>
+        <ng-container *ngTemplateOutlet="cardMenu; context: { cardId: 'orbit' }"></ng-container>
+      </header>
+      <div class="panel-content" [hidden]="!cardOptions.orbit.enabled">
+        <canvas #vizCanvas data-visual="orbit" class="viz-canvas orbit-canvas"
+          aria-label="Radial phase and rhythm dial"></canvas>
+        <div class="telemetry-row orbit-telemetry">
+          <div><span>BAR</span><strong>{{ barBeat }}</strong></div>
+          <div><span>TEMPO / EST.</span><strong>{{ tempo || '--' }} <small>BPM</small></strong></div>
+          <div><span>REVOLUTION</span><strong>{{ revolution }} <small>s</small></strong></div>
+          <div><span>SOUNDING</span><strong>{{ hasAudio ? 'TRACK' : '--' }}</strong></div>
+        </div>
+      </div>
+      <ng-container *ngIf="!cardOptions.orbit.enabled"><ng-container *ngTemplateOutlet="hiddenCard; context: { cardId: 'orbit' }"></ng-container></ng-container>
+    </article>
+
+    <article class="panel glyph-panel" [class.menu-open]="openCardMenu === 'glyph'">
+      <header class="panel-heading">
+        <h2><span>05</span> GLYPH</h2><span class="panel-caption">SPECTRAL BEAT MAP</span>
+        <ng-container *ngTemplateOutlet="cardMenu; context: { cardId: 'glyph' }"></ng-container>
+      </header>
+      <div class="panel-content" [hidden]="!cardOptions.glyph.enabled">
+        <canvas #vizCanvas data-visual="glyph" class="viz-canvas glyph-canvas"
+          aria-label="24 by 9 spectral beat matrix"></canvas>
+        <div class="binary-strip" aria-label="Binary status pattern">{{ binaryStatus }}</div>
+        <div class="telemetry-row glyph-telemetry">
+          <div><span>GRID</span><strong>24 <small>×</small> 9</strong></div>
+          <div><span>STEP</span><strong>{{ stepNumber || '--' }} <small>/ 16</small></strong></div>
+          <div><span>BASS</span><strong>{{ bassNote }}</strong></div>
+        </div>
+      </div>
+      <ng-container *ngIf="!cardOptions.glyph.enabled"><ng-container *ngTemplateOutlet="hiddenCard; context: { cardId: 'glyph' }"></ng-container></ng-container>
+    </article>
+
+    <article class="panel waveform-panel" [class.menu-open]="openCardMenu === 'waveform'">
+      <header class="panel-heading">
+        <h2>WAVEFORM</h2><span class="panel-caption">AMPLITUDE / PEAK LEVEL</span>
+        <ng-container *ngTemplateOutlet="cardMenu; context: { cardId: 'waveform' }"></ng-container>
+      </header>
+      <div class="panel-content" [hidden]="!cardOptions.waveform.enabled">
+        <canvas #vizCanvas data-visual="waveform" class="viz-canvas waveform-canvas"
+          aria-label="Live audio waveform and peak level"></canvas>
+        <div class="telemetry-row compact-telemetry">
+          <div><span>PEAK</span><strong>{{ peakDb }} <small>dBFS</small></strong></div>
+          <div><span>LOUDNESS</span><strong>{{ loudness }} <small>LUFS</small></strong></div>
+          <div><span>POSITION</span><strong>{{ formatTime(currentTime) }}</strong></div>
+        </div>
+      </div>
+      <ng-container *ngIf="!cardOptions.waveform.enabled"><ng-container *ngTemplateOutlet="hiddenCard; context: { cardId: 'waveform' }"></ng-container></ng-container>
+    </article>
+
+    <article class="panel spectrum-panel" [class.menu-open]="openCardMenu === 'spectrum'">
+      <header class="panel-heading">
+        <h2>SPECTRUM</h2><span class="panel-caption">LOG FREQUENCY / LIVE ENERGY</span>
+        <ng-container *ngTemplateOutlet="cardMenu; context: { cardId: 'spectrum' }"></ng-container>
+      </header>
+      <div class="panel-content" [hidden]="!cardOptions.spectrum.enabled">
+        <canvas #vizCanvas data-visual="spectrum" class="viz-canvas spectrum-canvas"
+          aria-label="Live logarithmic frequency spectrum"></canvas>
+        <div class="telemetry-row compact-telemetry">
+          <div><span>SUB</span><strong>{{ bands.sub | number:'2.0-0' }}<small>%</small></strong></div>
+          <div><span>MIDS</span><strong>{{ bands.mids | number:'2.0-0' }}<small>%</small></strong></div>
+          <div><span>AIR</span><strong>{{ bands.air | number:'2.0-0' }}<small>%</small></strong></div>
+        </div>
+      </div>
+      <ng-container *ngIf="!cardOptions.spectrum.enabled"><ng-container *ngTemplateOutlet="hiddenCard; context: { cardId: 'spectrum' }"></ng-container></ng-container>
+    </article>
+
+    <article class="panel scope-panel" [class.menu-open]="openCardMenu === 'scope'">
+      <header class="panel-heading">
+        <h2>STEREO SCOPE</h2><span class="panel-caption">LEFT / RIGHT PHASE</span>
+        <ng-container *ngTemplateOutlet="cardMenu; context: { cardId: 'scope' }"></ng-container>
+      </header>
+      <div class="panel-content" [hidden]="!cardOptions.scope.enabled">
+        <canvas #vizCanvas data-visual="scope" class="viz-canvas scope-canvas"
+          aria-label="Stereo left and right audio scope"></canvas>
+        <div class="telemetry-row compact-telemetry">
+          <div><span>LEFT</span><strong>{{ panLeft }}</strong></div>
+          <div><span>RIGHT</span><strong>{{ panRight }}</strong></div>
+          <div><span>WIDTH</span><strong>{{ widthValue ?? '--' }}<small *ngIf="widthValue !== null">%</small></strong></div>
+        </div>
+      </div>
+      <ng-container *ngIf="!cardOptions.scope.enabled"><ng-container *ngTemplateOutlet="hiddenCard; context: { cardId: 'scope' }"></ng-container></ng-container>
+    </article>
+
+    <article class="panel spectrogram-panel" [class.menu-open]="openCardMenu === 'spectrogram'">
+      <header class="panel-heading">
+        <h2>SPECTROGRAM</h2><span class="panel-caption">FREQUENCY OVER TIME</span>
+        <ng-container *ngTemplateOutlet="cardMenu; context: { cardId: 'spectrogram' }"></ng-container>
+      </header>
+      <div class="panel-content" [hidden]="!cardOptions.spectrogram.enabled">
+        <canvas #vizCanvas data-visual="spectrogram" class="viz-canvas spectrogram-canvas"
+          aria-label="Rolling frequency spectrogram"></canvas>
+        <div class="telemetry-row compact-telemetry">
+          <div><span>WINDOW</span><strong>12 <small>s</small></strong></div>
+          <div><span>LOW → HIGH</span><strong>35 Hz → 16 kHz</strong></div>
+        </div>
+      </div>
+      <ng-container *ngIf="!cardOptions.spectrogram.enabled"><ng-container *ngTemplateOutlet="hiddenCard; context: { cardId: 'spectrogram' }"></ng-container></ng-container>
+    </article>
+
+    <article class="panel network-panel" [class.menu-open]="openCardMenu === 'network'">
+      <header class="panel-heading">
+        <h2>NOTE NETWORK</h2><span class="panel-caption">PITCH CLASS / HARMONIC LINKS</span>
+        <ng-container *ngTemplateOutlet="cardMenu; context: { cardId: 'network' }"></ng-container>
+      </header>
+      <div class="panel-content" [hidden]="!cardOptions.network.enabled">
+        <canvas #vizCanvas data-visual="network" class="viz-canvas network-canvas"
+          aria-label="Audio-reactive pitch class network"></canvas>
+        <div class="telemetry-row compact-telemetry">
+          <div><span>KEY / EST.</span><strong>{{ musicalKey }}</strong></div>
+          <div><span>SOUNDING</span><strong>{{ soundingNotes }}</strong></div>
+          <div><span>BASS</span><strong>{{ bassNote }}</strong></div>
+        </div>
+      </div>
+      <ng-container *ngIf="!cardOptions.network.enabled"><ng-container *ngTemplateOutlet="hiddenCard; context: { cardId: 'network' }"></ng-container></ng-container>
+    </article>
+  </section>
+
+  <footer class="footer-bar">
+    <span>LIVE AUDIO ANALYSIS</span>
+    <span>WEB AUDIO API <i></i> CANVAS RENDER</span>
+    <span>STEREO FIELD / TRACK ANALYSIS</span>
+  </footer>
+
+  <div class="drawer-backdrop" *ngIf="themeOpen" (click)="themeOpen = false"></div>
+  <aside class="theme-drawer" [class.drawer-open]="themeOpen" aria-label="Color customization"
+    [attr.aria-hidden]="!themeOpen">
+    <div class="drawer-header">
+      <div><span class="drawer-kicker">STUDIO SETTINGS</span><h2>Color system</h2></div>
+      <button type="button" class="icon-button close-button" aria-label="Close color settings"
+        (click)="themeOpen = false">×</button>
+    </div>
+    <p>Adjust the signal palette. Changes update every visual panel instantly.</p>
+    <button class="randomize-button" type="button" (click)="randomizeAllColors()">
+      <span aria-hidden="true">⤨</span> RANDOMIZE ALL COLORS
+    </button>
+    <label class="color-field" *ngFor="let field of colorFields">
+      <span>{{ field.label }}</span>
+      <span class="color-control"><input type="color" [value]="theme[field.key]"
+        (input)="setColor(field.key, $event)" [attr.aria-label]="field.label">
+        <code>{{ theme[field.key] }}</code></span>
+    </label>
+    <label class="toggle-field">
+      <span>Dark workspace</span>
+      <input type="checkbox" [checked]="darkMode" (change)="toggleDarkMode($event)">
+    </label>
+    <label class="toggle-field">
+      <span>
+        Particle trails
+        <small>Leave a fading trace behind the particles</small>
+      </span>
+      <input type="checkbox" [checked]="particleTrailsEnabled" (change)="toggleParticleTrails($event)"
+        aria-label="Show particle trails">
+    </label>
+    <div class="preset-actions">
+      <label for="preset-name">Save current palette</label>
+      <input id="preset-name" type="text" maxlength="80" [value]="themeName" (input)="updateThemeName($event)">
+      <button type="button" class="reset-button" (click)="saveCurrentTheme()">SAVE PRESET</button>
+    </div>
+    <div class="saved-presets" *ngIf="presets.length">
+      <span class="drawer-kicker">BUILT-IN & SAVED PRESETS</span>
+      <button *ngFor="let preset of presets" type="button" (click)="applyPreset(preset)">
+        <span class="preset-swatches" aria-hidden="true">
+          <i [style.background]="preset.bg_color"></i>
+          <i [style.background]="preset.accent_color"></i>
+          <i [style.background]="preset.secondary_color"></i>
+        </span>
+        {{ preset.name }}
+      </button>
+    </div>
+    <button class="reset-button" type="button" (click)="resetTheme()">RESET PALETTE</button>
+  </aside>
+
+  <audio #audioPlayer (timeupdate)="onTimeUpdate()" (loadedmetadata)="onMetadataLoaded()"
+    (play)="isPlaying = true" (pause)="isPlaying = false" (ended)="onEnded()"></audio>
+</main>
